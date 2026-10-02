@@ -13,7 +13,7 @@ const DATA_DIR = path.join(__dirname, "..", "..", "data");
 const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
 
 /* ⚡ Customize your owner name here */
-const OWNER_NAME = "Mim";
+const OWNER_NAME = "Ariyan Shihab";
 
 module.exports = {
   name: "notiall",
