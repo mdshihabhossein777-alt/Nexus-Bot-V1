@@ -10,7 +10,7 @@
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge&logo=github)](https://github.com/mdshihabhossein777-alt/Nexus-Bot-V1)
 [![Node.js](https://img.shields.io/badge/Node.js-18.x+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge&logo=opensourceinitiative)](./LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-24.x-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)](https://github.com/mdshihabhossein777-alt/Nexus-Bot-V1)
 
 [![Stars](https://img.shields.io/github/stars/mdshihabhossein777-alt/Nexus-Bot-V1?style=social)](https://github.com/mdshihabhossein777-alt/Nexus-Bot-V1/stargazers)
