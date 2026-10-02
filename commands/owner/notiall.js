@@ -1,6 +1,6 @@
 /**
  * commands/owner/notiall.js
- * NEXUS BOT V1 — Broadcast notification to all groups
+ * NEXUS BOT V1 — Themed broadcast with live progress + short summary
  * © 2026 Ariyan Shihab
  */
 
@@ -12,28 +12,26 @@ const os = require("os");
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
 const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
 
-/* ⚡ Customize your owner name here */
+/* ⚡ Customize your owner name */
 const OWNER_NAME = "Ariyan Shihab";
 
 module.exports = {
   name: "notiall",
   aliases: ["notifyall", "broadcast", "noti"],
-  version: "2.0.0",
+  version: "3.1.0",
   role: 2,
-  description: "Broadcast notification to all groups",
+  description: "Themed broadcast to all groups with live progress",
   usage: "/notiall <message>  (reply to image to send image)",
   category: "owner",
 
   execute: async function (api, event, args, db, config) {
     const { threadID, messageID, senderID, messageReply } = event;
 
-    /* ⚡ Reaction helper */
     const react = (emoji) => {
       if (!messageID) return;
       try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ⚡ Owner check */
     const isOwner = String(senderID) === String(config.ownerID) ||
                     (config.adminIDs || []).map(String).includes(String(senderID));
     if (!isOwner) {
@@ -41,7 +39,6 @@ module.exports = {
       return;
     }
 
-    /* ⚡ Message required */
     const msgBody = args.join(" ").trim();
     if (!msgBody && !messageReply) {
       react("❓");
@@ -51,7 +48,6 @@ module.exports = {
       );
     }
 
-    /* ⚡ Load all groups */
     let groupsDB = {};
     try { groupsDB = fs.readJsonSync(GROUPS_FILE) || {}; } catch (_) {}
 
@@ -63,18 +59,34 @@ module.exports = {
     }
 
     react("⏳");
-    api.sendMessage(`📢 Sending to ${groupIDs.length} groups...`, threadID);
 
-    /* ═══ Build message ═══ */
+    /* ═══ LIVE PROGRESS MESSAGE ═══ */
+    const startMsg = await new Promise((resolve) => {
+      api.sendMessage(
+        `📢 BROADCAST STARTED\n━━━━━━━━━━━━━━━━━━━━\n👑 Owner: ${OWNER_NAME}\n📊 Total: ${groupIDs.length} groups\n⏳ Status: Sending...`,
+        threadID,
+        (err, info) => resolve(info)
+      );
+    });
+
+    const progressMsgID = startMsg?.messageID || null;
+
+    /* ═══ Build themed message ═══ */
     const lines = [];
-    lines.push("🔔 NOTIFICATION FROM OWNER");
-    lines.push(`👑 Owner: ${OWNER_NAME}`);
-    lines.push("━━━━━━━━━━━━━━");
+    lines.push("╔══════════════════════════╗");
+    lines.push("   🔔  NOTIFICATION  🔔");
+    lines.push("╚══════════════════════════╝");
+    lines.push("");
+    lines.push(`👑 From: ${OWNER_NAME}`);
+    lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    lines.push("");
     if (msgBody) lines.push(msgBody);
-    lines.push("━━━━━━━━━━━━━━");
+    lines.push("");
+    lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    lines.push("💎 NEXUS BOT V1");
     const finalText = lines.join("\n");
 
-    /* ═══ Check for reply image ═══ */
+    /* ═══ Image handling ═══ */
     let imageBuffer = null;
     let imageExt = "jpg";
 
@@ -87,7 +99,6 @@ module.exports = {
 
       if (imgAtt && imgAtt.url) {
         try {
-          console.log(`[notiall] downloading image: ${imgAtt.url.slice(0, 80)}`);
           const img = await axios.get(imgAtt.url, {
             responseType: "arraybuffer",
             timeout: 30000,
@@ -101,52 +112,65 @@ module.exports = {
           const buf = Buffer.from(img.data);
           if (buf.length > 2000) {
             imageBuffer = buf;
-
-            /* Detect ext */
             if (buf[0] === 0xFF && buf[1] === 0xD8) imageExt = "jpg";
             else if (buf[0] === 0x89 && buf[1] === 0x50) imageExt = "png";
             else if (buf.slice(0, 4).toString() === "RIFF") imageExt = "webp";
             else if (buf.slice(0, 3).toString() === "GIF") imageExt = "gif";
-
-            console.log(`[notiall] image: ${buf.length} bytes .${imageExt}`);
           }
-        } catch (e) {
-          console.warn("[notiall] image download failed:", e.message);
-        }
+        } catch (_) {}
       }
     }
 
-    /* ═══ Broadcast with 3s delay ═══ */
+    /* ═══ Broadcast ═══ */
     let success = 0;
     let failed = 0;
+
+    /* Helper to update progress message */
+    const updateProgress = async (idx) => {
+      if (!progressMsgID) return;
+      try {
+        const filled = Math.floor((idx / groupIDs.length) * 10);
+        const progressBar = "█".repeat(filled) + "░".repeat(10 - filled);
+        const pct = Math.floor((idx / groupIDs.length) * 100);
+
+        api.editMessage(
+          `📢 BROADCAST IN PROGRESS\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `👑 Owner: ${OWNER_NAME}\n` +
+          `📊 Progress: ${idx}/${groupIDs.length}\n` +
+          `[${progressBar}] ${pct}%\n` +
+          `✅ Sent: ${success}  ❌ Failed: ${failed}\n` +
+          `⏳ Status: Sending...`,
+          progressMsgID
+        );
+      } catch (_) {}
+    };
 
     for (let i = 0; i < groupIDs.length; i++) {
       const gid = groupIDs[i];
 
       try {
-        let payload;
-
         if (imageBuffer) {
-          /* Save temp file for stream */
           const tmpPath = path.join(os.tmpdir(), `notiall_${Date.now()}_${i}.${imageExt}`);
           await fs.writeFile(tmpPath, imageBuffer);
 
-          payload = {
-            body: finalText,
-            attachment: fs.createReadStream(tmpPath)
-          };
-
           await new Promise((resolve) => {
-            api.sendMessage(payload, gid, (err) => {
-              try { fs.unlinkSync(tmpPath); } catch (_) {}
-              if (err) failed++; else success++;
-              resolve();
-            });
+            api.sendMessage(
+              { body: finalText, attachment: fs.createReadStream(tmpPath) },
+              gid,
+              (err) => {
+                try { fs.unlinkSync(tmpPath); } catch (_) {}
+                if (err) failed++;
+                else success++;
+                resolve();
+              }
+            );
           });
         } else {
           await new Promise((resolve) => {
             api.sendMessage(finalText, gid, (err) => {
-              if (err) failed++; else success++;
+              if (err) failed++;
+              else success++;
               resolve();
             });
           });
@@ -159,17 +183,31 @@ module.exports = {
         failed++;
       }
 
-      /* ⚡ 3 second delay between groups (last group e delay nai) */
+      /* Update progress message */
+      await updateProgress(i + 1);
+
+      /* 3 sec delay (skip last) */
       if (i < groupIDs.length - 1) {
         await new Promise((r) => setTimeout(r, 3000));
       }
     }
 
+    /* ═══ FINAL SUMMARY (SHORT) ═══ */
     react("✅");
-    api.sendMessage(
-      `✅ Notification sent\n📤 Success: ${success}\n❌ Failed: ${failed}\n📊 Total: ${groupIDs.length}`,
-      threadID
-    );
+
+    const summaryText =
+      `✅ Broadcast Done\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `📊 Total: ${groupIDs.length}\n` +
+      `✅ Success: ${success}\n` +
+      `❌ Failed: ${failed}`;
+
+    /* Unsend progress + send final summary */
+    if (progressMsgID) {
+      try { api.unsendMessage(progressMsgID, () => {}); } catch (_) {}
+    }
+
+    api.sendMessage(summaryText, threadID);
   }
 };
 
