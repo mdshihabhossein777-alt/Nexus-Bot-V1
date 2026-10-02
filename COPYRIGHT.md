@@ -5,9 +5,9 @@ Project Name : NEXUS BOT V1 — "The Connected Light"
 Version      : 1.0.0
 Copyright    : © 2026 Ariyan Shihab. All Rights Reserved.
 Author       : Ariyan Shihab
-Contact      : https://facebook.com/YOUR_FB_LINK
-Discord      : your_discord_username
-Telegram     : @your_telegram_username
+Contact      : https://www.facebook.com/MdShihabofc
+Discord      : shihabxyz1
+Telegram     : @Usershihab777
 
 -------------------------------------------------------------------------------
 
@@ -88,7 +88,7 @@ If you use, fork, or build upon this Software, you must provide clear
 attribution to the original Author:
 
     "Based on NEXUS BOT V1 by Ariyan Shihab"
-    GitHub: https://github.com/YOUR_USERNAME/nexus-bot-v1
+    GitHub: https://github.com/mdshihabhossein777-alt/nexus-bot-v1
 
 -------------------------------------------------------------------------------
 
@@ -96,9 +96,9 @@ attribution to the original Author:
 --------------------------
 For commercial licensing, permissions, or any copyright-related queries:
 
-    Facebook : https://facebook.com/YOUR_FB_LINK
-    Discord  : your_discord_username
-    Telegram : @your_telegram_username
+    Facebook :https://www.facebook.com/MdShihabofc
+    Discord  : shihabxyz1
+    Telegram : @Usershihab777
 
 -------------------------------------------------------------------------------
 
