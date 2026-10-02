@@ -1,0 +1,36 @@
+{
+  "name": "nexus-bot-v1",
+  "version": "1.0.0",
+  "description": "NEXUS BOT V1 - The Connected Light | No-DB build",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@denzy-official/youtube_scraper": "^1.0.1",
+    "@dongdev/fca-unofficial": "^4.0.3",
+    "@heyputer/puter.js": "^2.6.3",
+    "@napi-rs/canvas": "^1.0.9",
+    "@raihan07/vidly": "^13.0.2",
+    "algochat-ai": "^1.0.0",
+    "axios": "^1.7.9",
+    "btch-downloader": "^6.4.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "facebook-dl": "^1.0.0",
+    "fdown-downloader": "^1.0.0",
+    "figlet": "^1.8.0",
+    "form-data": "^4.0.6",
+    "fs-extra": "^11.2.0",
+    "mathjs": "^13.2.0",
+    "moment-timezone": "^0.5.46",
+    "nayan-media-downloader": "^0.0.1-security",
+    "node-cache": "^5.1.2",
+    "qrcode": "^1.5.4",
+    "yt-search": "^2.13.1",
+    "ytdlp-nodejs": "^3.4.5"
+  }
+}

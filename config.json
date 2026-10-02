@@ -1,0 +1,14 @@
+{
+  "brandName": "NEXUS BOT V1",
+  "brandOwner": "Ariyan Shihab",
+  "brandFB": "YOUR FB LINK",
+  "ownerID": "61577562306224",
+  "adminIDs": ["61591436426472"],
+  "prefix": "/",
+  "allowNickChange": true,
+  "allowAdminChange": true,
+  "footer": "",
+  "cooldown": 5000,
+  "sendDelay": 1200,
+  "autoDlCooldown": 10000
+}
