@@ -581,7 +581,7 @@ async function handleMessage(api, event) {
     } catch (_) {}
   }
 
-  /* ═══════════ SONG SELECTION ═══════════ */
+    /* ═══════════ SONG SELECTION ═══════════ */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
@@ -613,16 +613,50 @@ async function handleMessage(api, event) {
             const url = `https://www.youtube.com/watch?v=${song.videoId}`;
             tmpPath = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
 
-            console.log(`[song] yt-dlp starting...`);
+            /* ⚡ Cookies path — local + Render dono te kaj korbe */
+            const cookieCandidates = [
+              path.join(__dirname, "cookies.txt"),
+              path.join(process.cwd(), "cookies.txt"),
+              path.join(os.tmpdir(), "yt-cookies.txt"),
+              "/opt/render/project/src/cookies.txt"
+            ];
 
-            const result = await ytdlp.downloadAudio(url, "mp3", {
+            let cookiesPath = null;
+            for (const c of cookieCandidates) {
+              try {
+                if (fs.existsSync(c)) { cookiesPath = c; break; }
+              } catch (_) {}
+            }
+
+            /* ⚡ Env var (base64) theke cookies decode korun (jodi thake) */
+            if (!cookiesPath && process.env.YT_COOKIES_B64) {
+              try {
+                const decoded = Buffer.from(process.env.YT_COOKIES_B64, "base64").toString("utf8");
+                const tmpCookie = path.join(os.tmpdir(), "yt-cookies.txt");
+                fs.writeFileSync(tmpCookie, decoded);
+                cookiesPath = tmpCookie;
+                console.log("[song] cookies loaded from env var");
+              } catch (e) {
+                console.log("[song] cookie decode failed:", e.message);
+              }
+            }
+
+            console.log(`[song] yt-dlp starting... (cookies: ${cookiesPath ? "yes" : "no"})`);
+
+            const ytdlpOpts = {
               output: tmpPath,
               audioQuality: "0",
               noWarnings: true,
               noProgress: true,
               retries: 3,
               concurrentFragments: 4
-            });
+            };
+
+            if (cookiesPath) {
+              ytdlpOpts.cookies = cookiesPath;
+            }
+
+            const result = await ytdlp.downloadAudio(url, "mp3", ytdlpOpts);
 
             let finalPath = null;
             if (result && result.filePaths && result.filePaths.length) {
@@ -703,7 +737,6 @@ async function handleMessage(api, event) {
       console.error("[song] reply error:", e.message);
     }
   }
-
   /* VOTE REGISTRY */
   if (event.messageReply && votes.has(event.messageReply.messageID)) {
     const v = votes.get(event.messageReply.messageID);
