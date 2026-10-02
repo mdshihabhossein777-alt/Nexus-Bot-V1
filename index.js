@@ -13,6 +13,20 @@
 require("dotenv").config();
 try { require("@denzy-official/youtube_scraper"); } catch (_) {}
 
+
+/* ⚡ Set yt-dlp binary path for Render */
+try {
+  const ytdlpPath = path.join(__dirname, "bin", "yt-dlp");
+  if (fs.existsSync(ytdlpPath)) {
+    process.env.YTDLP_PATH = ytdlpPath;
+    log("[yt-dlp] binary path set:", ytdlpPath);
+  } else {
+    warn("[yt-dlp] binary not found, using system default");
+  }
+} catch (_) {}
+
+
+
 const fs        = require("fs-extra");
 const os        = require("os");
 const path      = require("path");
