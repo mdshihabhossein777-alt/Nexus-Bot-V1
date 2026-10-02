@@ -14,7 +14,7 @@ function react(api, emoji, messageID, threadID) {
 module.exports = {
   name: "sing",
   aliases: ["song", "music", "gaan", "gan"],
-  version: "8.0.0",
+  version: "8.1.0",
   role: 0,
   description: "Search and send full song",
   usage: "/sing <song name>",
@@ -56,28 +56,50 @@ module.exports = {
       });
 
       api.sendMessage(lines.join("\n"), threadID, (err, info) => {
-        if (err || !info) return;
+        if (err) {
+          console.error("[sing] send error:", err && err.message ? err.message : err);
+          return;
+        }
 
-        songSearches.set(info.messageID, {
+        /* ⚡ FIX: info ba info.messageID null hote pare Render e */
+        const realMID = info && info.messageID ? String(info.messageID) : null;
+
+        /* Fallback key — threadID + senderID based (unique per user per chat) */
+        const fallbackKey = `fb_${threadID}_${senderID}`;
+        const storeKey = realMID || fallbackKey;
+
+        songSearches.set(storeKey, {
           results,
           threadID: String(threadID),
           senderID: String(senderID),
           time: Date.now()
         });
 
-        console.log(`[sing] list stored: ${info.messageID}`);
+        console.log(`[sing] list stored: ${storeKey}${realMID ? "" : " (fallback)"}`);
 
-        /* Auto-unsend at 30s */
-        const timer = setTimeout(() => {
-          if (songSearches.has(info.messageID)) {
-            api.unsendMessage(info.messageID, () => {});
-            songSearches.delete(info.messageID);
-            console.log(`[sing] auto-unsent: ${info.messageID}`);
-          }
-        }, 30000);
+        /* Auto-unsend at 30s — only if we have a real messageID */
+        if (realMID) {
+          const timer = setTimeout(() => {
+            if (songSearches.has(realMID)) {
+              api.unsendMessage(realMID, () => {});
+              songSearches.delete(realMID);
+              console.log(`[sing] auto-unsent: ${realMID}`);
+            }
+          }, 30000);
 
-        const entry = songSearches.get(info.messageID);
-        if (entry) entry.timer = timer;
+          const entry = songSearches.get(realMID);
+          if (entry) entry.timer = timer;
+        } else {
+          /* Fallback: auto-cleanup after 60s (jodi user reply na kore) */
+          const timer = setTimeout(() => {
+            if (songSearches.has(fallbackKey)) {
+              songSearches.delete(fallbackKey);
+              console.log(`[sing] fallback auto-cleaned: ${fallbackKey}`);
+            }
+          }, 60000);
+          const entry = songSearches.get(fallbackKey);
+          if (entry) entry.timer = timer;
+        }
       });
 
     } catch (e) {
