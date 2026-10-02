@@ -1,48 +1,127 @@
-// commands/utility/out.js - NEXUS V1 - Bot leaves current group
+/**
+ * commands/utility/out.js
+ * NEXUS BOT V1 — Reply to /grouplist with /out <num> → leave that group
+ * © 2026 Ariyan Shihab
+ */
+
+const fs = require("fs-extra");
+const path = require("path");
+
+/* ⚡ From commands/utility/ → up 2 levels to project root */
+const DATA_DIR = path.join(__dirname, "..", "..", "data");
+const GP_STORE_FILE = path.join(DATA_DIR, "grouplist_store.json");
+const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
+
 module.exports = {
   name: "out",
-  aliases: ["leave", "left", "exit", "bye"],
-  version: "1.0.0",
+  aliases: ["leave", "leavegroup", "exit"],
+  version: "2.0.0",
   role: 2,
-  description: "OWNER ONLY: Bot leaves the current group",
-  usage: "/out",
+  description: "Reply to /grouplist with /out <num> to leave that group",
+  usage: "/out <number>  (reply to /grouplist message)",
+  category: "utility",
+
   execute: async function (api, event, args, db, config) {
-    const { threadID, isGroup } = event;
+    const { threadID, messageID, senderID, messageReply } = event;
+
+    /* ⚡ Emoji reaction helper */
+    const react = (emoji) => {
+      if (!messageID) return;
+      try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
+    };
+
+    /* ⚡ Owner check */
+    const isOwner = String(senderID) === String(config.ownerID) ||
+                    (config.adminIDs || []).map(String).includes(String(senderID));
+    if (!isOwner) {
+      react("⛔");
+      return;
+    }
+
+    /* ⚡ Must reply to a message */
+    if (!messageReply || !messageReply.messageID) {
+      react("❓");
+      return api.sendMessage("Reply to /grouplist message with /out <num>", threadID);
+    }
+
+    /* ⚡ Validate number */
+    const num = parseInt(args[0]);
+    if (!Number.isFinite(num) || num < 1) {
+      react("❓");
+      return api.sendMessage("Provide a valid number. Example: /out 3", threadID);
+    }
+
+    react("⏳");
 
     try {
-      if (!isGroup) {
-        return api.sendMessage("⚠️ This command only works in groups.", threadID);
+      /* ═══ Load store ═══ */
+      let store = {};
+      try { store = fs.readJsonSync(GP_STORE_FILE) || {}; } catch (_) {}
+
+      const entry = store[messageReply.messageID];
+
+      if (!entry || !entry.groups || !entry.groups.length) {
+        react("❌");
+        return api.sendMessage("List expired or not found. Run /grouplist again.", threadID);
       }
 
-      api.sendMessage(
-        `👋 ${config.brandName} leaving this group...\n\nGoodbye! ✨`,
-        threadID,
-        async (err) => {
-          if (err) return;
+      /* ═══ Find target group ═══ */
+      const target = entry.groups.find((g) => g.idx === num);
 
-          setTimeout(async () => {
-            try {
-              await api.removeUserFromGroup(
-                String(api.getCurrentUserID()),
-                threadID
-              );
-              console.log(`[out] Bot left group ${threadID}`);
-            } catch (e) {
-              console.error("[out] failed:", e.message);
-              try {
-                api.sendMessage(
-                  `❌ Could not leave: ${e.message}\n\n💡 Make sure bot is admin or group is not locked.`,
-                  threadID
-                );
-              } catch (_) {}
-            }
-          }, 2000);
+      if (!target) {
+        react("❌");
+        return api.sendMessage(`Number ${num} is out of range (1-${entry.groups.length}).`, threadID);
+      }
+
+      const targetID = target.gid;
+      const targetName = target.name;
+
+      console.log(`[out] leaving group: ${targetName} (${targetID})`);
+
+      /* ═══ Leave the group ═══ */
+      const me = String(api.getCurrentUserID());
+
+      await new Promise((resolve, reject) => {
+        try {
+          api.removeUserFromGroup(me, targetID, (err) => {
+            if (err) return reject(new Error(err.error || err.message || "leave failed"));
+            resolve();
+          });
+        } catch (e) {
+          reject(e);
         }
-      );
+      });
+
+      /* ═══ Remove from groups.json ═══ */
+      try {
+        let groupsDB = fs.readJsonSync(GROUPS_FILE) || {};
+        if (groupsDB[targetID]) {
+          delete groupsDB[targetID];
+          fs.writeJsonSync(GROUPS_FILE, groupsDB);
+        }
+      } catch (_) {}
+
+      /* ═══ Remove from store ═══ */
+      try {
+        delete store[messageReply.messageID];
+        fs.writeJsonSync(GP_STORE_FILE, store);
+      } catch (_) {}
+
+      react("✅");
+      api.sendMessage(`✅ Left group: ${targetName}`, threadID);
 
     } catch (e) {
-      api.sendMessage("Error: " + e.message, threadID);
+      console.error("[out] error:", e.message);
+
+      let msg = "Failed to leave group.";
+      if (e.message.includes("leave")) {
+        msg = "Facebook rejected leave request. Try again later.";
+      }
+
+      react("❌");
+      api.sendMessage(`❌ ${msg}`, threadID);
     }
   }
 };
-// Powered by Shihab
+
+// © 2026 NEXUS BOT V1 | Ariyan Shihab
