@@ -14,10 +14,12 @@ function react(api, emoji, messageID, threadID) {
 module.exports = {
   name: "sing",
   aliases: ["song", "music", "gaan", "gan"],
-  version: "8.1.0",
+  version: "8.3.0",
   role: 0,
   description: "Search and send full song",
   usage: "/sing <song name>",
+  category: "fun",
+
   execute: async function (api, event, args, db, config) {
     const { threadID, senderID, messageID } = event;
 
@@ -27,9 +29,7 @@ module.exports = {
         return api.sendMessage(`🎵 Use: /sing <song name>`, threadID);
       }
 
-      /* React ⏳ on search */
       if (messageID) await react(api, "⏳", messageID, threadID);
-
       console.log(`[sing] searching: "${query}"`);
 
       const search = await yts(query);
@@ -42,10 +42,8 @@ module.exports = {
         return api.sendMessage(`❌ "${query}" name e kono song pelam na.`, threadID);
       }
 
-      /* React ✅ */
       if (messageID) await react(api, "✅", messageID, threadID);
 
-      /* Clean list */
       const lines = [`🎵 SONG LIST`, `━━━━━━━━━━━━━━━━━━`];
       results.forEach((s, i) => {
         const name = String(s.title).slice(0, 42);
@@ -61,45 +59,46 @@ module.exports = {
           return;
         }
 
-        /* ⚡ FIX: info ba info.messageID null hote pare Render e */
         const realMID = info && info.messageID ? String(info.messageID) : null;
-
-        /* Fallback key — threadID + senderID based (unique per user per chat) */
         const fallbackKey = `fb_${threadID}_${senderID}`;
         const storeKey = realMID || fallbackKey;
 
-        songSearches.set(storeKey, {
+        const storeData = {
           results,
           threadID: String(threadID),
           senderID: String(senderID),
           time: Date.now()
-        });
+        };
 
-        console.log(`[sing] list stored: ${storeKey}${realMID ? "" : " (fallback)"}`);
+        /* ⚡ Store under BOTH keys — real MID + fallback */
+        songSearches.set(storeKey, storeData);
+        if (realMID) {
+          songSearches.set(fallbackKey, storeData);
+        }
 
-        /* Auto-unsend at 30s — only if we have a real messageID */
+        console.log(`[sing] stored: ${storeKey} + fallback: ${fallbackKey}`);
+
+        /* ⚡ Auto-unsend at 30s — but DON'T delete from store */
         if (realMID) {
           const timer = setTimeout(() => {
             if (songSearches.has(realMID)) {
-              api.unsendMessage(realMID, () => {});
-              songSearches.delete(realMID);
-              console.log(`[sing] auto-unsent: ${realMID}`);
+              try { api.unsendMessage(realMID, () => {}); } catch (_) {}
+              console.log(`[sing] unsent msg: ${realMID} (store kept)`);
             }
           }, 30000);
-
           const entry = songSearches.get(realMID);
           if (entry) entry.timer = timer;
-        } else {
-          /* Fallback: auto-cleanup after 60s (jodi user reply na kore) */
-          const timer = setTimeout(() => {
-            if (songSearches.has(fallbackKey)) {
-              songSearches.delete(fallbackKey);
-              console.log(`[sing] fallback auto-cleaned: ${fallbackKey}`);
-            }
-          }, 60000);
-          const entry = songSearches.get(fallbackKey);
-          if (entry) entry.timer = timer;
         }
+
+        /* ⚡ Separate cleanup timer — remove store after 5 min */
+        const cleanupTimer = setTimeout(() => {
+          if (songSearches.has(storeKey)) songSearches.delete(storeKey);
+          if (songSearches.has(fallbackKey)) songSearches.delete(fallbackKey);
+          console.log(`[sing] store cleanup: ${storeKey} + ${fallbackKey}`);
+        }, 5 * 60 * 1000);
+
+        const entryX = songSearches.get(storeKey);
+        if (entryX) entryX.cleanupTimer = cleanupTimer;
       });
 
     } catch (e) {

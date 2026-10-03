@@ -624,11 +624,14 @@ async function handleMessage(api, event) {
     } catch (_) {}
   }
 
-  /* ═══════════ SONG SELECTION ═══════════ */
+   /* ═══════════ SONG SELECTION ═══════════ */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
-      const search = songSearches.get(event.messageReply.messageID);
+
+      /* ⚡ Lookup by reply MID, then fallback to per-user key */
+      const search = songSearches.get(event.messageReply.messageID)
+                  || songSearches.get(`fb_${threadID}_${senderID}`);
 
       if (search) {
         const num = parseInt(body.trim());
@@ -636,19 +639,40 @@ async function handleMessage(api, event) {
         if (Number.isFinite(num) && num >= 1 && num <= search.results.length) {
           const song = search.results[num - 1];
 
+          /* ⚡ Cleanup timers */
           if (search.timer) clearTimeout(search.timer);
+          if (search.cleanupTimer) clearTimeout(search.cleanupTimer);
+
+          /* ⚡ Cleanup store keys */
           songSearches.delete(event.messageReply.messageID);
+          songSearches.delete(`fb_${threadID}_${senderID}`);
 
           if (event.messageID) {
             try { api.setMessageReaction("⏳", event.messageID, threadID, () => {}); } catch (_) {}
           }
 
-          api.unsendMessage(event.messageReply.messageID, () => {});
+          /* Try to unsend the list message — ignore errors if already deleted */
+          try { api.unsendMessage(event.messageReply.messageID, () => {}); } catch (_) {}
 
           let tmpPath = null;
 
           try {
             console.log(`[song] downloading: ${song.title}`);
+            console.log(`[song] videoId: ${song.videoId}`);
+            console.log(`[song] cookies env: ${process.env.YT_COOKIES_B64 ? "yes" : "no"}`);
+
+            /* ⚡ Verify binaries (debug) */
+            try {
+              const { execSync } = require("child_process");
+              try {
+                const yt = execSync("which yt-dlp 2>/dev/null || command -v yt-dlp || echo notfound", { stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
+                console.log(`[song] yt-dlp bin: ${yt || "NOT FOUND"}`);
+              } catch (_) { console.log(`[song] yt-dlp bin: NOT FOUND`); }
+              try {
+                const ff = execSync("which ffmpeg 2>/dev/null || command -v ffmpeg || echo notfound", { stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
+                console.log(`[song] ffmpeg bin: ${ff || "NOT FOUND"}`);
+              } catch (_) { console.log(`[song] ffmpeg bin: NOT FOUND`); }
+            } catch (_) {}
 
             const { YtDlp } = require("ytdlp-nodejs");
             const ytdlp = new YtDlp();
@@ -656,32 +680,42 @@ async function handleMessage(api, event) {
             const url = `https://www.youtube.com/watch?v=${song.videoId}`;
             tmpPath = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
 
-            /* ⚡ Cookies path — local + Render dono te kaj korbe */
+            /* ⚡ Cookies path — multiple locations */
             const cookieCandidates = [
               path.join(__dirname, "cookies.txt"),
+              path.join(__dirname, "..", "cookies.txt"),
               path.join(process.cwd(), "cookies.txt"),
               path.join(os.tmpdir(), "yt-cookies.txt"),
-              "/opt/render/project/src/cookies.txt"
+              "/opt/render/project/src/cookies.txt",
+              "/app/cookies.txt"
             ];
 
             let cookiesPath = null;
             for (const c of cookieCandidates) {
               try {
-                if (fs.existsSync(c)) { cookiesPath = c; break; }
+                if (fs.existsSync(c)) {
+                  cookiesPath = c;
+                  console.log(`[song] cookies file found: ${c}`);
+                  break;
+                }
               } catch (_) {}
             }
 
-            /* ⚡ Env var (base64) theke cookies decode korun (jodi thake) */
+            /* ⚡ Env var (base64) theke cookies decode */
             if (!cookiesPath && process.env.YT_COOKIES_B64) {
               try {
                 const decoded = Buffer.from(process.env.YT_COOKIES_B64, "base64").toString("utf8");
                 const tmpCookie = path.join(os.tmpdir(), "yt-cookies.txt");
                 fs.writeFileSync(tmpCookie, decoded);
                 cookiesPath = tmpCookie;
-                console.log("[song] cookies loaded from env var");
+                console.log(`[song] cookies decoded from env (${decoded.length} chars)`);
               } catch (e) {
-                console.log("[song] cookie decode failed:", e.message);
+                console.log(`[song] cookie decode failed: ${e.message}`);
               }
+            }
+
+            if (!cookiesPath) {
+              console.log(`[song] WARNING: no cookies available — YouTube may block`);
             }
 
             console.log(`[song] yt-dlp starting... (cookies: ${cookiesPath ? "yes" : "no"})`);
@@ -692,7 +726,8 @@ async function handleMessage(api, event) {
               noWarnings: true,
               noProgress: true,
               retries: 3,
-              concurrentFragments: 4
+              concurrentFragments: 4,
+              extractorArgs: "youtube:player_client=android,ios,web_safari"
             };
 
             if (cookiesPath) {
@@ -736,6 +771,7 @@ async function handleMessage(api, event) {
             console.error("[song] yt-dlp failed:", e.message);
             if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
 
+            /* ⚡ Fallback: iTunes preview */
             try {
               const itunes = await axios.get("https://itunes.apple.com/search", {
                 params: { term: song.title, media: "music", limit: 1 },

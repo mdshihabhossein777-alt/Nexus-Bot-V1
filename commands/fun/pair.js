@@ -12,18 +12,23 @@ const { createCanvas, loadImage } = require("@napi-rs/canvas");
 
 /* ═══ Avatar downloader ═══ */
 async function getAvatar(uid) {
-  try {
-    const url = `https://graph.facebook.com/${uid}/picture?height=720&width=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`;
-    const res = await axios.get(url, {
-      responseType: "arraybuffer",
-      timeout: 15000,
-      maxRedirects: 5,
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-    return Buffer.from(res.data);
-  } catch (_) {
-    return null;
+  const urls = [
+    `https://graph.facebook.com/${uid}/picture?height=720&width=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`,
+    `https://graph.facebook.com/${uid}/picture?type=large&width=720&height=720`
+  ];
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+        maxRedirects: 5,
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      const buf = Buffer.from(res.data);
+      if (buf.length > 1000) return buf;
+    } catch (_) { continue; }
   }
+  return null;
 }
 
 /* ═══ Anime image fetcher — multiple sources ═══ */
@@ -66,10 +71,7 @@ async function getAnimeImage(type) {
         responseType: "arraybuffer",
         timeout: 15000,
         maxContentLength: 10 * 1024 * 1024,
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Accept": "image/*,*/*"
-        }
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*,*/*" }
       });
       const buf = Buffer.from(img.data);
       if (buf.length > 1000) return buf;
@@ -78,7 +80,7 @@ async function getAnimeImage(type) {
   return null;
 }
 
-/* ═══ Circle clip avatar ═══ */
+/* ═══ Draw circle avatar ═══ */
 async function drawCircleAvatar(ctx, buf, cx, cy, r) {
   if (!buf) {
     ctx.beginPath();
@@ -114,7 +116,7 @@ async function drawCircleAvatar(ctx, buf, cx, cy, r) {
   } catch (_) {}
 }
 
-/* ═══ Draw anime character (rounded) ═══ */
+/* ═══ Draw rounded anime image ═══ */
 async function drawAnime(ctx, buf, x, y, w, h) {
   if (!buf) return;
   try {
@@ -158,11 +160,50 @@ async function drawAnime(ctx, buf, x, y, w, h) {
   } catch (_) {}
 }
 
+/* ═══ Draw heart shape (no emoji font needed) ═══ */
+function drawHeart(ctx, cx, cy, size, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  const topCurveHeight = size * 0.3;
+  ctx.moveTo(cx, cy + topCurveHeight);
+  /* Left curve */
+  ctx.bezierCurveTo(cx, cy, cx - size / 2, cy, cx - size / 2, cy + topCurveHeight);
+  /* Top left */
+  ctx.bezierCurveTo(cx - size / 2, cy + (size + topCurveHeight) / 2, cx, cy + (size + topCurveHeight) / 1.4, cx, cy + size);
+  /* Top right */
+  ctx.bezierCurveTo(cx, cy + (size + topCurveHeight) / 1.4, cx + size / 2, cy + (size + topCurveHeight) / 2, cx + size / 2, cy + topCurveHeight);
+  /* Right curve */
+  ctx.bezierCurveTo(cx + size / 2, cy, cx, cy, cx, cy + topCurveHeight);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ═══ Gender detection — handles both number and string ═══ */
+function detectGender(info) {
+  if (!info) return null;
+  const g = info.gender;
+
+  /* Number format */
+  if (g === 1) return "female";
+  if (g === 2) return "male";
+
+  /* String format */
+  if (typeof g === "string") {
+    const low = g.toLowerCase();
+    if (low === "female" || low === "f" || low === "woman" || low === "meye" || low === "girl") return "female";
+    if (low === "male" || low === "m" || low === "man" || low === "chele" || low === "boy") return "male";
+  }
+
+  return null;
+}
+
 /* ═══ Main Command ═══ */
 module.exports = {
   name: "pair",
   aliases: ["ship", "love", "couple", "match"],
-  version: "1.0.0",
+  version: "1.1.0",
   role: 0,
   description: "Pair random boy and girl from group",
   usage: "/pair",
@@ -190,46 +231,65 @@ module.exports = {
       const me = String(api.getCurrentUserID());
       const realMembers = members.filter((id) => String(id) !== me);
 
+      console.log(`[pair] members: ${realMembers.length}`);
+
       if (realMembers.length < 2) {
         react("❌");
         return api.sendMessage("❌ Not enough members", threadID);
       }
 
-      /* ═══ Get gender info ═══ */
-      const userInfos = await api.getUserInfo(realMembers);
-
+      /* ═══ Get user info — one-by-one for reliability ═══ */
       const boys = [];
       const girls = [];
+      const unknown = [];
 
       for (const id of realMembers) {
-        const info = userInfos[String(id)];
-        if (!info || !info.name) continue;
+        try {
+          const ui = await api.getUserInfo(String(id));
+          const info = ui && ui[String(id)];
+          if (!info || !info.name) continue;
 
-        if (info.gender === 2) {
-          boys.push({ id: String(id), name: info.name });
-        } else if (info.gender === 1) {
-          girls.push({ id: String(id), name: info.name });
+          const gender = detectGender(info);
+          if (gender === "male") boys.push({ id: String(id), name: info.name });
+          else if (gender === "female") girls.push({ id: String(id), name: info.name });
+          else unknown.push({ id: String(id), name: info.name });
+        } catch (_) {
+          continue;
         }
       }
 
-      if (!boys.length || !girls.length) {
-        react("❌");
-        return api.sendMessage("❌ Not enough boy/girl detected", threadID);
+      console.log(`[pair] boys: ${boys.length} | girls: ${girls.length} | unknown: ${unknown.length}`);
+
+      /* ═══ Fallback: if not enough, split randomly ═══ */
+      let boyPool = [...boys];
+      let girlPool = [...girls];
+
+      if (boyPool.length === 0 || girlPool.length === 0) {
+        /* Mix unknown + existing, split randomly */
+        const all = [...boys, ...girls, ...unknown];
+        if (all.length < 2) {
+          react("❌");
+          return api.sendMessage("❌ Gender info not available", threadID);
+        }
+        const shuffled = all.sort(() => Math.random() - 0.5);
+        const mid = Math.floor(shuffled.length / 2);
+        boyPool = shuffled.slice(0, mid);
+        girlPool = shuffled.slice(mid);
       }
 
       /* ═══ Pick random boy + girl ═══ */
-      const boy = boys[Math.floor(Math.random() * boys.length)];
-      const girl = girls[Math.floor(Math.random() * girls.length)];
+      const boy = boyPool[Math.floor(Math.random() * boyPool.length)];
+      const girl = girlPool[Math.floor(Math.random() * girlPool.length)];
 
       /* ═══ Love % ═══ */
       const lovePct = 50 + Math.floor(Math.random() * 51);
 
       /* ═══ Download all images in parallel ═══ */
       const [boyPP, girlPP, animeBoy, animeGirl] = await Promise.all([
-        getAvatar(boy.id),
-        getAvatar(girl.id),
-        getAnimeImage("boy"),
-        getAnimeImage("girl")
+        getAvatar(boy.id).catch(() => null),
+        getAvatar(girl.id).catch(() => null),
+        getAnimeImage("boy").catch(() => null),
+        getAnimeImage("girl").catch(() => null)
       ]);
 
       /* ═══ Canvas setup ═══ */
@@ -238,7 +298,7 @@ module.exports = {
       const canvas = createCanvas(W, H);
       const ctx = canvas.getContext("2d");
 
-      /* Background */
+      /* Background gradient */
       const grad = ctx.createLinearGradient(0, 0, W, H);
       grad.addColorStop(0, "#ff9a9e");
       grad.addColorStop(0.5, "#fecfef");
@@ -246,62 +306,71 @@ module.exports = {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
-      /* Decorative hearts */
-      const hearts = ["💕", "💖", "💗", "💘", "❤️", "💝"];
-      ctx.font = "40px sans-serif";
-      ctx.textAlign = "center";
-      for (let i = 0; i < 8; i++) {
-        ctx.fillText(
-          hearts[Math.floor(Math.random() * hearts.length)],
-          50 + Math.random() * (W - 100),
-          40 + Math.random() * (H - 80)
-        );
+      /* Decorative small hearts (drawn, not emoji) */
+      for (let i = 0; i < 10; i++) {
+        const x = 50 + Math.random() * (W - 100);
+        const y = 40 + Math.random() * (H - 80);
+        const s = 20 + Math.random() * 15;
+        const colors = ["#ff4d88", "#ff88aa", "#ff2266", "#ffb3cc"];
+        const c = colors[Math.floor(Math.random() * colors.length)];
+        drawHeart(ctx, x, y, s, c);
       }
 
-      /* Title */
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 44px sans-serif";
-      ctx.shadowColor = "#ff4d88";
-      ctx.shadowBlur = 15;
-      ctx.fillText("💕 LOVE MATCH 💕", W / 2, 60);
-      ctx.shadowBlur = 0;
+      /* Title bar */
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.fillRect(W / 2 - 220, 20, 440, 70);
+      ctx.fillStyle = "#ff2266";
+      ctx.font = "bold 42px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("LOVE MATCH", W / 2, 70);
 
       /* Anime images */
-      await drawAnime(ctx, animeBoy, 60, 100, 280, 380);
-      await drawAnime(ctx, animeGirl, W - 60 - 280, 100, 280, 380);
+      await drawAnime(ctx, animeBoy, 60, 110, 280, 380);
+      await drawAnime(ctx, animeGirl, W - 60 - 280, 110, 280, 380);
 
-      /* Center heart + % */
-      ctx.font = "80px sans-serif";
-      ctx.fillText("💗", W / 2, 220);
+      /* Big heart in center */
+      drawHeart(ctx, W / 2, 240, 100, "#ff2266");
+      drawHeart(ctx, W / 2 - 10, 230, 80, "#ff5588");
 
-      ctx.fillStyle = "#ff2266";
-      ctx.font = "bold 90px sans-serif";
-      ctx.shadowColor = "#fff";
-      ctx.shadowBlur = 20;
-      ctx.fillText(`${lovePct}%`, W / 2, 320);
-      ctx.shadowBlur = 0;
+      /* Love % in center */
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 76px sans-serif";
+      ctx.strokeStyle = "#ff2266";
+      ctx.lineWidth = 6;
+      ctx.textAlign = "center";
+      ctx.strokeText(`${lovePct}%`, W / 2, 300);
+      ctx.fillText(`${lovePct}%`, W / 2, 300);
 
       /* FB avatars */
-      await drawCircleAvatar(ctx, boyPP, 200, 500, 70);
-      await drawCircleAvatar(ctx, girlPP, W - 200, 500, 70);
+      await drawCircleAvatar(ctx, boyPP, 200, 540, 75);
+      await drawCircleAvatar(ctx, girlPP, W - 200, 540, 75);
 
       /* Names */
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 32px sans-serif";
-      ctx.shadowColor = "#ff4d88";
-      ctx.shadowBlur = 10;
-      ctx.fillText(boy.name.split(" ")[0].slice(0, 15), 200, 610);
-      ctx.fillText(girl.name.split(" ")[0].slice(0, 15), W - 200, 610);
-      ctx.shadowBlur = 0;
+      ctx.font = "bold 34px sans-serif";
+      ctx.strokeStyle = "#ff2266";
+      ctx.lineWidth = 5;
+      ctx.textAlign = "center";
 
-      /* Bottom message */
-      ctx.fillStyle = "#fff";
-      ctx.font = "italic 28px sans-serif";
-      const msg = lovePct >= 85 ? "Perfect Match! 💘"
-                : lovePct >= 70 ? "Great Chemistry! 💖"
-                : lovePct >= 55 ? "Good Match! 💗"
-                : "Try Harder! 💔";
-      ctx.fillText(msg, W / 2, 680);
+      const boyName = String(boy.name).split(" ")[0].slice(0, 15);
+      const girlName = String(girl.name).split(" ")[0].slice(0, 15);
+
+      ctx.strokeText(boyName, 200, 660);
+      ctx.fillText(boyName, 200, 660);
+      ctx.strokeText(girlName, W - 200, 660);
+      ctx.fillText(girlName, W - 200, 660);
+
+      /* Match message */
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "italic bold 30px sans-serif";
+      const msg = lovePct >= 85 ? "Perfect Match!"
+                : lovePct >= 70 ? "Great Chemistry!"
+                : lovePct >= 55 ? "Good Match!"
+                : "Try Harder!";
+      ctx.strokeStyle = "#ff2266";
+      ctx.lineWidth = 4;
+      ctx.strokeText(msg, W / 2, 700);
+      ctx.fillText(msg, W / 2, 700);
 
       /* ═══ Save + send ═══ */
       const tmpPath = path.join(os.tmpdir(), `pair_${Date.now()}.png`);
@@ -322,8 +391,9 @@ module.exports = {
 
     } catch (e) {
       console.error("[pair] error:", e.message);
+      console.error("[pair] stack:", e.stack);
       react("❌");
-      api.sendMessage(`❌ ${e.message.slice(0, 60)}`, threadID);
+      api.sendMessage(`❌ ${e.message.slice(0, 80)}`, threadID);
     }
   }
 };
