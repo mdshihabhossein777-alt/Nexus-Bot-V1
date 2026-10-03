@@ -1,6 +1,6 @@
 /**
  * commands/ai/tts.js
- * NEXUS BOT V1 — Text to Voice
+ * NEXUS BOT V1 — Text to Voice (Google TTS + Cooldown)
  * © 2026
  */
 
@@ -8,23 +8,48 @@ const fs = require("fs-extra");
 const path = require("path");
 const axios = require("axios");
 
+/* ═══ Cooldown Store ═══ */
+const cooldowns = new Map();
+const COOLDOWN_MS = 30 * 1000;   // 30 seconds
+
 module.exports = {
   name: "tts",
-  aliases: ["say", "voice"],
-  version: "2.2",
+  aliases: ["say"],
+  version: "2.3",
   role: 0,
-  description: "Text to voice",
+  description: "Text to voice (30s cooldown for members)",
   usage: "/tts [lang] <text>",
   category: "ai",
 
   execute: async function (api, event, args, db, config) {
-    const { threadID, messageID } = event;
+    const { threadID, messageID, senderID } = event;
 
     const react = (emoji) => {
       if (!messageID) return;
       try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
     };
 
+    /* ═══ Owner check ═══ */
+    const isOwner = String(senderID) === String(config.ownerID) ||
+                    (config.adminIDs || []).map(String).includes(String(senderID));
+
+    /* ═══ Cooldown check (owner unlimited) ═══ */
+    if (!isOwner) {
+      const last = cooldowns.get(String(senderID)) || 0;
+      const remain = COOLDOWN_MS - (Date.now() - last);
+
+      if (remain > 0) {
+        react("⏳");
+        const sec = Math.ceil(remain / 1000);
+        return api.sendMessage(`❌ Cooldown: ${sec}s left`, threadID);
+      }
+
+      cooldowns.set(String(senderID), Date.now());
+
+      if (cooldowns.size > 5000) cooldowns.clear();
+    }
+
+    /* ═══ Parse lang + text ═══ */
     let lang = "bn";
     let text = args.join(" ").trim();
 
@@ -45,12 +70,18 @@ module.exports = {
     const filePath = path.join(cacheDir, `tts_${Date.now()}.mp3`);
 
     try {
+      /* ═══ Google TTS — natural params ═══ */
       const url =
         `https://translate.google.com/translate_tts` +
         `?ie=UTF-8` +
+        `&q=${encodeURIComponent(text)}` +
         `&tl=${lang}` +
+        `&total=1` +
+        `&idx=0` +
+        `&textlen=${text.length}` +
         `&client=tw-ob` +
-        `&q=${encodeURIComponent(text)}`;
+        `&prev=input` +
+        `&ttsspeed=0.85`;
 
       const res = await axios.get(url, {
         responseType: "arraybuffer",
