@@ -1,6 +1,6 @@
 /**
  * commands/utility/prefix.js
- * NEXUS BOT V1 — Show prefix info when user types "/" or "prefix"
+ * NEXUS BOT V1 — Show prefix info
  * © 2026
  */
 
@@ -9,17 +9,18 @@ const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
 
-/* ═══ Cooldown per thread ═══ */
 const cooldowns = new Map();
 const COOLDOWN_MS = 5000;
 
-/* ═══ Aura GIF URLs ═══ */
+/* ═══ Anime aura glow GIFs ═══ */
 const AURA_GIFS = [
-  "https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif",
-  "https://media.giphy.com/media/dxn6fRlTIShoeBr69N/giphy.gif",
-  "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif",
-  "https://media.tenor.com/9vRAkntogEMAAAAd/matrix-cyber.gif",
-  "https://media.tenor.com/On7kvXhzml4AAAAj/loading-gif.gif"
+  "https://media.tenor.com/YtQ12sH0XcEAAAAC/anime-glitch.gif",
+  "https://media.tenor.com/QBZxQVLpZ7IAAAAC/anime-aura.gif",
+  "https://media.tenor.com/2KJhVKJ3fJoAAAAC/glow-anime.gif",
+  "https://media.tenor.com/nJq8yvXq3-MAAAAC/anime-power.gif",
+  "https://media.tenor.com/Rh_HMj4-hs8AAAAC/aura-anime.gif",
+  "https://media.tenor.com/PZY3cLm_hVMAAAAC/anime-magic.gif",
+  "https://media.tenor.com/W3BqFNZ4vBUAAAAC/solo-leveling-aura.gif"
 ];
 
 async function fetchAuraGIF() {
@@ -29,7 +30,7 @@ async function fetchAuraGIF() {
       const r = await axios.get(url, {
         responseType: "arraybuffer",
         timeout: 10000,
-        maxContentLength: 25 * 1024 * 1024,
+        maxContentLength: 15 * 1024 * 1024,
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           "Accept": "image/gif,image/*,*/*"
@@ -38,7 +39,9 @@ async function fetchAuraGIF() {
       const buf = Buffer.from(r.data);
       const isGIF87a = buf.slice(0, 6).toString() === "GIF87a";
       const isGIF89a = buf.slice(0, 6).toString() === "GIF89a";
-      if (buf.length > 5000 && (isGIF87a || isGIF89a)) return buf;
+      if (buf.length > 5000 && buf.length < 3 * 1024 * 1024 && (isGIF87a || isGIF89a)) {
+        return buf;
+      }
     } catch (_) { continue; }
   }
   return null;
@@ -47,18 +50,22 @@ async function fetchAuraGIF() {
 module.exports = {
   name: "prefix",
   aliases: ["botprefix"],
-  version: "1.0.1",
+  version: "2.2.0",
   role: 0,
   description: "Show bot prefix info",
   usage: "/prefix",
   category: "utility",
 
+  /* ⚡ Trigger check — only "prefix" or "/prefix" */
   checkTrigger: function (body) {
     if (!body) return false;
-    const t = body.trim();
-    if (t.length < 1 || t.length > 20) return false;
-    if (t === "/") return true;
-    if (/^(prefix|botprefix|bot prefix|ki prefix|what.?s the prefix)$/i.test(t)) return true;
+    const t = body.trim().toLowerCase();
+
+    /* Exact match only */
+    if (t === "prefix") return true;
+    if (t === "botprefix") return true;
+    if (t === "bot prefix") return true;
+
     return false;
   },
 
@@ -79,7 +86,7 @@ module.exports = {
 
     react("✨");
 
-    /* Prefix (group or global) */
+    /* Get prefix */
     let prefix = config.prefix || "/";
     if (event.isGroup) {
       try {
@@ -88,36 +95,30 @@ module.exports = {
       } catch (_) {}
     }
 
-    /* Bot name */
-    let botName = "NEXUS BOT V1";
-    try {
-      if (global.NEXUS && global.NEXUS.botNickConfig && global.NEXUS.botNickConfig.nickname) {
-        botName = global.NEXUS.botNickConfig.nickname;
-      }
-    } catch (_) {}
-
-    /* User name */
+    /* Full name */
     let userName = "User";
     try {
       const ui = await api.getUserInfo(senderID);
       if (ui && ui[senderID] && ui[senderID].name) {
-        userName = ui[senderID].name.split(" ")[0];
+        userName = ui[senderID].name;
       }
     } catch (_) {}
 
-    /* ═══ Clean card ═══ */
+    /* ═══ Modern clean card ═══ */
     const card =
-      `✨ PREFIX INFO ✨\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `👤 Hey ${userName}!\n` +
+      `╭──────────────────────╮\n` +
+      `│    ✦  P R E F I X  ✦   │\n` +
+      `╰──────────────────────╯\n` +
       `\n` +
-      `🤖 Bot    ➜  ${botName}\n` +
-      `⚡ Prefix ➜  「 ${prefix} 」\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `👋 Hey ${userName}\n` +
       `\n` +
-      `NEXUS BOT V1`;
+      `  🤖  Bot     ➜  NEXUS BOT V1\n` +
+      `  ⚡  Prefix  ➜  ${prefix}\n` +
+      `\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `  💎  NEXUS BOT V1`;
 
-    /* GIF try */
+    /* GIF */
     let tmpPath = null;
     try {
       const gifBuf = await fetchAuraGIF();

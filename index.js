@@ -199,7 +199,14 @@ function defaultGroup(id) {
     warnings: {},
     banned: [],
     settings: {
-      antilink: false, antibot: false, antispam: false,
+      antilink: false,
+      antilinkAction: "warn",       /* warn | kick | mute */
+      antilinkMaxWarn: 3,
+      antilinkWhitelist: [
+        "github.com", "youtube.com", "youtu.be",
+        "google.com", "wikipedia.org", "render.com"
+      ],
+      antibot: false, antispam: false,
       welcome: true, goodbye: true, joinNoti: true, leaveNoti: true,
       autoseen: false, mute: false, autoDownload: true,
       adminOnly: false, approved: [], lockedNicks: {},
@@ -503,7 +510,25 @@ async function handleMessage(api, event) {
   const body     = (event.body || "").trim();
 
   if (!threadID || !senderID) return;
-    /* ⚡ BOT CHAT HOOK — triggers on "bot" word or reply to bot's message */
+
+  /* ⚡ PREFIX INFO HOOK — only "prefix" or "/prefix" triggers */
+  if (body) {
+    try {
+      const pfxCmd = commands.get("prefix");
+      if (pfxCmd && typeof pfxCmd.checkTrigger === "function" &&
+          typeof pfxCmd.execute === "function") {
+        if (pfxCmd.checkTrigger(body)) {
+          await pfxCmd.execute(api, event, [], db, config, { prefix: config.prefix, commands });
+          return;
+        }
+      }
+    } catch (e) {
+      errl("[prefix-hook] error:", e.message);
+    }
+  }
+
+
+  /* ⚡ BOT CHAT HOOK — triggers on "bot" word or reply to bot's message */
   if (body && !body.startsWith(config.prefix)) {
     try {
       const botCmd = commands.get("bot");
@@ -599,7 +624,7 @@ async function handleMessage(api, event) {
     } catch (_) {}
   }
 
-    /* ═══════════ SONG SELECTION ═══════════ */
+  /* ═══════════ SONG SELECTION ═══════════ */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
@@ -755,6 +780,7 @@ async function handleMessage(api, event) {
       console.error("[song] reply error:", e.message);
     }
   }
+
   /* VOTE REGISTRY */
   if (event.messageReply && votes.has(event.messageReply.messageID)) {
     const v = votes.get(event.messageReply.messageID);
@@ -794,11 +820,52 @@ async function handleMessage(api, event) {
     return;
   }
 
-  /* ANTILINK */
-  if (isGroup && settings.antilink && !senderIsAdmin && URL_REGEX.test(body)) {
-    try { await api.deleteMessage(event.messageID); } catch (_) {}
-    api.sendMessage(`🔗 Links are not allowed here, <@${senderID}>.`, threadID);
-    return;
+  /* ═══════════ ANTILINK — UPGRADED ═══════════ */
+  if (isGroup && settings.antilink && !senderIsAdmin && body) {
+    const LINK_REGEX = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(chat\.whatsapp\.com\/[^\s]+)|(wa\.me\/[^\s]+)|(t\.me\/[^\s]+)|(telegram\.me\/[^\s]+)|(discord\.gg\/[^\s]+)|(discord\.com\/invite\/[^\s]+)|(facebook\.com\/groups\/[^\s]+)|(fb\.gg\/[^\s]+)|(instagram\.com\/[^\s]+)|(insta\.gram\/[^\s]+)|([a-z0-9-]+\.(com|net|org|io|ph|me|xyz|link|site|online|app|gg|tv|info|co|us|uk|ru|in|bd)(\/[^\s]*)?)/i;
+
+    const whitelist = (settings.antilinkWhitelist || [
+      "github.com", "youtube.com", "youtu.be",
+      "google.com", "wikipedia.org", "render.com"
+    ]).map((d) => d.toLowerCase());
+
+    const found = body.match(LINK_REGEX) || [];
+    const bad = found.filter((l) => !whitelist.some((w) => l.toLowerCase().includes(w)));
+
+    if (bad.length > 0) {
+      try { await api.deleteMessage(event.messageID); } catch (_) {}
+
+      if (!group.warnings) group.warnings = {};
+      if (!group.warnings[senderID]) {
+        group.warnings[senderID] = { count: 0, last: null };
+      }
+
+      group.warnings[senderID].count = (group.warnings[senderID].count || 0) + 1;
+      group.warnings[senderID].last = new Date().toISOString();
+      scheduleSave();
+
+      const warnCount = group.warnings[senderID].count;
+      const maxWarn = Number(settings.antilinkMaxWarn || 3);
+      const action = settings.antilinkAction || "warn";
+
+      if (warnCount >= maxWarn && action === "kick") {
+        try { await api.removeUserFromGroup(senderID, threadID); } catch (_) {}
+        api.sendMessage(`🚫 <@${senderID}> removed (${warnCount} warnings)`, threadID);
+        group.warnings[senderID].count = 0;
+        scheduleSave();
+        return;
+      }
+
+      if (warnCount >= maxWarn && action === "mute") {
+        settings.mute = true;
+        scheduleSave();
+        api.sendMessage(`🔇 Group muted`, threadID);
+        return;
+      }
+
+      api.sendMessage(`⚠️ <@${senderID}> link removed (${warnCount}/${maxWarn})`, threadID);
+      return;
+    }
   }
 
   /* ANTIBOT */

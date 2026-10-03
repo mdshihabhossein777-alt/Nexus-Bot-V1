@@ -1,28 +1,85 @@
+/**
+ * commands/ai/prompt.js
+ * NEXUS BOT V1 — Enhance image prompt
+ * © 2026
+ */
+
 const axios = require("axios");
 
 module.exports = {
   name: "prompt",
-  aliases: ["enhance-prompt"],
-  version: "1.0.0",
+  aliases: ["enhance", "enhanceprompt", "imagine"],
+  version: "1.1.0",
   role: 0,
   description: "Enhance your image prompt for better results",
   usage: "/prompt <short idea>",
-  execute: async function (api, event, args, db) {
-    const { threadID } = event;
-    try {
-      const text = args.join(" ").trim();
-      if (!text) return api.sendMessage("📝 Usage: /prompt <short idea>", threadID);
+  category: "ai",
 
-      const fullPrompt = `Expand this image prompt into a detailed, vivid description (max 40 words). Return ONLY the enhanced prompt:\n\n"${text}"`;
+  execute: async function (api, event, args, db, config) {
+    const { threadID, messageID } = event;
+
+    const react = (emoji) => {
+      if (!messageID) return;
+      try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
+    };
+
+    const text = args.join(" ").trim();
+
+    if (!text) {
+      react("❓");
+      return api.sendMessage("Usage: /prompt <short idea>", threadID);
+    }
+
+    react("⏳");
+
+    try {
+      const fullPrompt =
+        `Expand this image prompt into a detailed, vivid description (max 40 words). ` +
+        `Include style, lighting, mood, and details. Return ONLY the enhanced prompt, no explanation:\n\n` +
+        `"${text}"`;
 
       const r = await axios.get(
         `https://text.pollinations.ai/${encodeURIComponent(fullPrompt)}`,
-        { params: { model: "openai" }, timeout: 60000 }
+        {
+          params: { model: "openai", seed: Date.now() },
+          timeout: 25000,
+          headers: { "User-Agent": "Mozilla/5.0" }
+        }
       );
 
-      const enhanced = typeof r.data === "string" ? r.data : JSON.stringify(r.data);
-      api.sendMessage(`✨ Enhanced prompt:\n\n${enhanced.slice(0, 800)}\n\n💡 Try: /imagine ${enhanced.slice(0, 200)}`, threadID);
-    } catch (e) { api.sendMessage("Error: " + e.message, threadID); }
+      let enhanced = typeof r.data === "string" ? r.data : "";
+
+      if (!enhanced || enhanced.trim().length < 5) {
+        throw new Error("empty response");
+      }
+
+      /* Clean output */
+      enhanced = enhanced.trim();
+      enhanced = enhanced.replace(/^(Enhanced prompt|Prompt|AI|Assistant):\s*/i, "");
+      enhanced = enhanced.replace(/^["']+|["']+$/g, "");
+      if (enhanced.includes("\n\n")) enhanced = enhanced.split("\n\n")[0];
+      if (enhanced.length > 500) enhanced = enhanced.slice(0, 497) + "...";
+
+      react("✨");
+
+      return api.sendMessage(
+        `✨ Enhanced prompt:\n\n${enhanced}\n\n💡 Try: /genimg ${enhanced.slice(0, 200)}`,
+        threadID
+      );
+
+    } catch (e) {
+      console.error("[prompt] error:", e.message);
+
+      let errLine = "unknown error";
+      if (e.message.includes("timeout")) errLine = "network timeout";
+      else if (e.message.includes("empty")) errLine = "empty response";
+      else if (e.message.includes("ENOTFOUND")) errLine = "network unreachable";
+      else errLine = e.message.slice(0, 60);
+
+      react("❌");
+      api.sendMessage(`❌ ${errLine}`, threadID);
+    }
   }
 };
-// © NEXUS BOT V1 | nexus-bot-v1.vercel.app
+
+// © 2026 NEXUS BOT V1
