@@ -503,6 +503,35 @@ async function handleMessage(api, event) {
   const body     = (event.body || "").trim();
 
   if (!threadID || !senderID) return;
+    /* ⚡ BOT CHAT HOOK — triggers on "bot" word or reply to bot's message */
+  if (body && !body.startsWith(config.prefix)) {
+    try {
+      const botCmd = commands.get("bot");
+      if (botCmd && typeof botCmd.execute === "function") {
+        let shouldTrigger = false;
+        let userArgs = [];
+
+        if (/^bot(\s|$)/i.test(body)) {
+          shouldTrigger = true;
+          userArgs = body.replace(/^bot\s*/i, "").split(/\s+/).filter(Boolean);
+        }
+
+        if (event.messageReply && event.messageReply.messageID &&
+            typeof botCmd.isBotReply === "function" &&
+            botCmd.isBotReply(event.messageReply.messageID)) {
+          shouldTrigger = true;
+          userArgs = [body];
+        }
+
+        if (shouldTrigger) {
+          await botCmd.execute(api, event, userArgs, db, config, { prefix: config.prefix, commands });
+          return;
+        }
+      }
+    } catch (e) {
+      errl("[bot-hook] error:", e.message);
+    }
+  }
 
   const isGroup  = !!event.isGroup;
   const isOwner  = isOwnerOrAdmin(senderID);
