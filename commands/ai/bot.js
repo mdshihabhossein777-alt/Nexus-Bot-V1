@@ -176,9 +176,26 @@ module.exports = {
       userMsg = "";
     }
 
+        /* ⚡ If user just typed "bot", give a short cute greeting */
     if (!userMsg) {
-      react("❓");
-      return;
+      const greetings = [
+        "Hmm? 🥰",
+        "Bolo na 😊",
+        "Ki holo?",
+        "Hmm? 🤭",
+        "Bolo ki bolbe",
+        "Ji bolo?",
+      ];
+      userMsg = greetings[Math.floor(Math.random() * greetings.length)];
+      /* Send immediately — no AI call needed */
+      react("💕");
+      const delay = 600 + Math.random() * 800;
+      await new Promise((r) => setTimeout(r, delay));
+      return api.sendMessage(userMsg, threadID, (err, info) => {
+        if (!err && info && info.messageID) {
+          storeBotReply(info.messageID, threadID, senderID);
+        }
+      });
     }
 
     /* ═══ Ensure message is for THIS sender only ═══ */
