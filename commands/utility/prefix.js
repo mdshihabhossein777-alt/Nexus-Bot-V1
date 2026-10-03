@@ -1,6 +1,6 @@
 /**
  * commands/utility/prefix.js
- * NEXUS BOT V1 — Show prefix info with aura GIF
+ * NEXUS BOT V1 — Show prefix info with real anime aura GIF
  * © 2026
  */
 
@@ -9,84 +9,90 @@ const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
 
-/* ═══ Cooldown per thread ═══ */
 const cooldowns = new Map();
 const COOLDOWN_MS = 5000;
 
-/* ═══ Aura / Anime glow GIFs — tested working ═══ */
-/* ═══ Anime Aura / Power-up GIFs — mobile optimized ═══ */
-const AURA_GIFS = [
-  /* Solo Leveling style aura */
-  "https://media.giphy.com/media/h4OGa0nLzUxU5MxQ2H/giphy.gif",
-  "https://media.giphy.com/media/ZBQhoZC0nqknSviPqT/giphy.gif",
-  "https://media.giphy.com/media/l4FGuhL4U2WyjdkaY/giphy.gif",
+/* ═══ Giphy public beta key (no signup needed) ═══ */
+const GIPHY_KEY = "dc6zaTOxFJmzC";
 
-  /* Demon Slayer / breathing style */
-  "https://media.giphy.com/media/kGG2uRmHnj9RmS0AMW/giphy.gif",
-  "https://media.giphy.com/media/YqVXoGdHV3tRe5YcV1/giphy.gif",
-  "https://media.giphy.com/media/3o7btT1T9qpQZWhNlK/giphy.gif",
-
-  /* Jujutsu Kaisen cursed energy */
-  "https://media.giphy.com/media/dAmkxHwmq5o4uHKi3G/giphy.gif",
-  "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif",
-  "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-
-  /* Generic anime glow / power-up */
-  "https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif",
-  "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif",
-  "https://media.giphy.com/media/3o7TKMt1VVNkHV2PaE/giphy.gif",
-  "https://media.giphy.com/media/xUOwGhOrYP0jP6iAy4/giphy.gif",
-  "https://media.giphy.com/media/dxn6fRlTIShoeBr69N/giphy.gif",
-  "https://media.giphy.com/media/l3q2K5jinAlChoCLS/giphy.gif",
-  "https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif",
-  "https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif"
+/* ═══ Search queries for anime aura GIFs ═══ */
+const SEARCH_QUERIES = [
+  "anime aura",
+  "anime power up",
+  "anime glow",
+  "anime energy",
+  "solo leveling aura",
+  "anime magic circle",
+  "anime transformation",
+  "anime lightning aura"
 ];
 
-/* ═══ Fetch animated GIF ═══ */
+/* ═══ Fetch anime aura GIF from Giphy API ═══ */
 async function fetchAuraGIF() {
-  const shuffled = [...AURA_GIFS].sort(() => Math.random() - 0.5);
+  const q = SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
 
-  for (const url of shuffled) {
-    try {
-      const r = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 12000,
-        maxContentLength: 20 * 1024 * 1024,
-        maxRedirects: 5,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "image/gif,image/webp,image/*,*/*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Referer": "https://giphy.com/"
-        }
-      });
+  try {
+    const r = await axios.get("https://api.giphy.com/v1/gifs/search", {
+      params: {
+        api_key: GIPHY_KEY,
+        q: q,
+        limit: 20,
+        rating: "g",
+        lang: "en"
+      },
+      timeout: 12000,
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-      const buf = Buffer.from(r.data);
-      const header = buf.slice(0, 6).toString();
-      const isGIF = header === "GIF87a" || header === "GIF89a";
-
-      if (isGIF && buf.length > 5000 && buf.length < 5 * 1024 * 1024) {
-        console.log(`[prefix] GIF loaded: ${(buf.length / 1024).toFixed(0)} KB`);
-        return buf;
-      }
-    } catch (e) {
-      console.log(`[prefix] GIF fail: ${e.message.slice(0, 40)}`);
-      continue;
+    const gifs = r.data?.data || [];
+    if (!gifs.length) {
+      console.log(`[prefix] no results for "${q}"`);
+      return null;
     }
+
+    /* Shuffle and pick one */
+    const shuffled = gifs.sort(() => Math.random() - 0.5);
+
+    for (const gif of shuffled.slice(0, 5)) {
+      const url = gif.images?.original?.url ||
+                  gif.images?.downsized?.url ||
+                  gif.images?.fixed_height?.url;
+      if (!url) continue;
+
+      try {
+        const img = await axios.get(url, {
+          responseType: "arraybuffer",
+          timeout: 12000,
+          maxContentLength: 15 * 1024 * 1024,
+          headers: { "User-Agent": "Mozilla/5.0" }
+        });
+
+        const buf = Buffer.from(img.data);
+        const header = buf.slice(0, 6).toString();
+        const isGIF = header === "GIF87a" || header === "GIF89a";
+
+        if (isGIF && buf.length > 5000 && buf.length < 8 * 1024 * 1024) {
+          console.log(`[prefix] GIF: ${(buf.length / 1024).toFixed(0)} KB — query: "${q}"`);
+          return buf;
+        }
+      } catch (_) { continue; }
+    }
+  } catch (e) {
+    console.log(`[prefix] Giphy API fail: ${e.message.slice(0, 60)}`);
   }
+
   return null;
 }
 
 module.exports = {
   name: "prefix",
   aliases: ["botprefix"],
-  version: "2.2.0",
+  version: "3.0.0",
   role: 0,
   description: "Show bot prefix info",
   usage: "/prefix",
   category: "utility",
 
-  /* ⚡ Trigger check — only "prefix" word */
   checkTrigger: function (body) {
     if (!body) return false;
     const t = body.trim().toLowerCase();
@@ -104,7 +110,6 @@ module.exports = {
       try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ═══ Cooldown check ═══ */
     const now = Date.now();
     const last = cooldowns.get(String(threadID)) || 0;
     if (now - last < COOLDOWN_MS) return;
@@ -113,7 +118,7 @@ module.exports = {
 
     react("✨");
 
-    /* ═══ Get prefix (group or global) ═══ */
+    /* Get prefix */
     let prefix = config.prefix || "/";
     if (event.isGroup) {
       try {
@@ -122,7 +127,7 @@ module.exports = {
       } catch (_) {}
     }
 
-    /* ═══ Get user full name ═══ */
+    /* Full name */
     let userName = "User";
     try {
       const ui = await api.getUserInfo(senderID);
@@ -131,7 +136,7 @@ module.exports = {
       }
     } catch (_) {}
 
-    /* ═══ Clean card — bot name once at bottom ═══ */
+    /* Card */
     const card =
       `╭──────────────────────╮\n` +
       `│    ✦  P R E F I X  ✦   │\n` +
@@ -144,7 +149,7 @@ module.exports = {
       `━━━━━━━━━━━━━━━━━━━━\n` +
       `  💎  NEXUS BOT V1`;
 
-    /* ═══ Try to fetch GIF ═══ */
+    /* GIF */
     let tmpPath = null;
     try {
       const gifBuf = await fetchAuraGIF();
@@ -159,13 +164,12 @@ module.exports = {
           try { fs.unlinkSync(tmpPath); } catch (_) {}
         });
       } else {
-        console.log("[prefix] no GIF available, text only");
+        console.log("[prefix] no GIF available — text only");
       }
     } catch (e) {
-      console.log(`[prefix] GIF error: ${e.message}`);
+      console.log(`[prefix] error: ${e.message}`);
     }
 
-    /* Fallback: text only */
     api.sendMessage(card, threadID);
   }
 };
