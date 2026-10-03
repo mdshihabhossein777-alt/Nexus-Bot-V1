@@ -14,19 +14,32 @@ const cooldowns = new Map();
 const COOLDOWN_MS = 5000;
 
 /* ═══ Aura / Anime glow GIFs — tested working ═══ */
+/* ═══ Anime Aura / Power-up GIFs — mobile optimized ═══ */
 const AURA_GIFS = [
-  "https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif",
-  "https://media.giphy.com/media/3o7TKMt1VVNkHV2PaE/giphy.gif",
+  /* Solo Leveling style aura */
+  "https://media.giphy.com/media/h4OGa0nLzUxU5MxQ2H/giphy.gif",
+  "https://media.giphy.com/media/ZBQhoZC0nqknSviPqT/giphy.gif",
+  "https://media.giphy.com/media/l4FGuhL4U2WyjdkaY/giphy.gif",
+
+  /* Demon Slayer / breathing style */
+  "https://media.giphy.com/media/kGG2uRmHnj9RmS0AMW/giphy.gif",
+  "https://media.giphy.com/media/YqVXoGdHV3tRe5YcV1/giphy.gif",
+  "https://media.giphy.com/media/3o7btT1T9qpQZWhNlK/giphy.gif",
+
+  /* Jujutsu Kaisen cursed energy */
+  "https://media.giphy.com/media/dAmkxHwmq5o4uHKi3G/giphy.gif",
+  "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif",
+  "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+
+  /* Generic anime glow / power-up */
   "https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif",
   "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif",
+  "https://media.giphy.com/media/3o7TKMt1VVNkHV2PaE/giphy.gif",
+  "https://media.giphy.com/media/xUOwGhOrYP0jP6iAy4/giphy.gif",
   "https://media.giphy.com/media/dxn6fRlTIShoeBr69N/giphy.gif",
-  "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif",
   "https://media.giphy.com/media/l3q2K5jinAlChoCLS/giphy.gif",
   "https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif",
-  "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif",
-  "https://media.giphy.com/media/xUOwGhOrYP0jP6iAy4/giphy.gif",
-  "https://media.giphy.com/media/kBZBlLVlfECvOQAVno/giphy.gif",
-  "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+  "https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif"
 ];
 
 /* ═══ Fetch animated GIF ═══ */
@@ -52,7 +65,7 @@ async function fetchAuraGIF() {
       const header = buf.slice(0, 6).toString();
       const isGIF = header === "GIF87a" || header === "GIF89a";
 
-      if (isGIF && buf.length > 5000 && buf.length < 8 * 1024 * 1024) {
+      if (isGIF && buf.length > 5000 && buf.length < 5 * 1024 * 1024) {
         console.log(`[prefix] GIF loaded: ${(buf.length / 1024).toFixed(0)} KB`);
         return buf;
       }
