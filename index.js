@@ -4,17 +4,10 @@
    NEXUS BOT V1 — "The Connected Light"
    Core Runtime  |  @dongdev/fca-unofficial  |  NO DATABASE  |  Keep-Alive
    Owner: Ariyan Shihab  |  Prefix: /  |  2026 Safe Build
-
-   ⚡ FAST WELCOME CARD EDITION
-   ⚡ OWNER PREFIX-LESS MODE
-   ⚡ AUTO ERROR FIX
    ============================================================================ */
 
 require("dotenv").config();
 try { require("@denzy-official/youtube_scraper"); } catch (_) {}
-
-
-
 
 const fs        = require("fs-extra");
 const os        = require("os");
@@ -64,9 +57,6 @@ const cache = new NodeCache({
   useClones: false
 });
 
-/* ---------------------------------------------------------------------------
-   ⚡ GROUP INFO CACHE
-   --------------------------------------------------------------------------- */
 const groupInfoCache = new Map();
 const GROUP_CACHE_TTL = 30 * 60 * 1000;
 
@@ -175,10 +165,7 @@ function attachMethods(obj, type) {
   if (typeof obj.save === "function") return obj;
 
   Object.defineProperty(obj, "save", {
-    value: async function () {
-      scheduleSave();
-      return obj;
-    },
+    value: async function () { scheduleSave(); return obj; },
     enumerable: false, writable: true, configurable: true
   });
 
@@ -200,7 +187,7 @@ function defaultGroup(id) {
     banned: [],
     settings: {
       antilink: false,
-      antilinkAction: "warn",       /* warn | kick | mute */
+      antilinkAction: "warn",
       antilinkMaxWarn: 3,
       antilinkWhitelist: [
         "github.com", "youtube.com", "youtu.be",
@@ -227,7 +214,6 @@ function defaultUser(id) {
 
 async function getGroup(threadID) {
   const id = String(threadID);
-
   if (!groupsDB[id]) {
     groupsDB[id] = defaultGroup(id);
     scheduleSave();
@@ -240,7 +226,6 @@ async function getGroup(threadID) {
 
 async function getUser(userID) {
   const id = String(userID);
-
   if (!usersDB[id]) {
     usersDB[id] = defaultUser(id);
     scheduleSave();
@@ -309,10 +294,7 @@ const db = {
       const chain = {
         sort: (s) => {
           const keys = Object.keys(s || {});
-          if (keys.length) {
-            sortKey = keys[0];
-            sortDir = s[sortKey];
-          }
+          if (keys.length) { sortKey = keys[0]; sortDir = s[sortKey]; }
           return chain;
         },
         select: () => chain,
@@ -320,7 +302,6 @@ const db = {
         skip: () => chain,
         lean: async () => {
           let arr = Object.values(usersDB).map((u) => attachMethods(u, "user"));
-
           if (sortKey) {
             arr.sort((a, b) => {
               const av = (a[sortKey] || 0);
@@ -509,9 +490,12 @@ async function handleMessage(api, event) {
   const senderID = String(event.senderID);
   const body     = (event.body || "").trim();
 
+  /* ⚡ DEBUG LOG */
+  console.log(`[DEBUG-MSG] body="${body.slice(0, 50)}" sender=${senderID} thread=${threadID} isGroup=${event.isGroup}`);
+
   if (!threadID || !senderID) return;
 
-  /* ⚡ PREFIX INFO HOOK — only "prefix" or "/prefix" triggers */
+  /* ⚡ PREFIX INFO HOOK */
   if (body) {
     try {
       const pfxCmd = commands.get("prefix");
@@ -527,8 +511,7 @@ async function handleMessage(api, event) {
     }
   }
 
-
-  /* ⚡ BOT CHAT HOOK — triggers on "bot" word or reply to bot's message */
+  /* ⚡ BOT CHAT HOOK */
   if (body && !body.startsWith(config.prefix)) {
     try {
       const botCmd = commands.get("bot");
@@ -563,34 +546,28 @@ async function handleMessage(api, event) {
   const group    = isGroup ? await getGroup(threadID) : null;
   const settings = group ? group.settings : null;
 
-  /* ═══════════ DND AUTO-REPLY ═══════════ */
+  /* DND AUTO-REPLY */
   if (isGroup) {
     try {
       const DND_FILE = path.join(DATA_DIR, "dnd.json");
       if (fs.existsSync(DND_FILE)) {
         const dndData = fs.readJsonSync(DND_FILE) || {};
-
         const checkIDs = new Set();
         Object.keys(event.mentions || {}).forEach((id) => checkIDs.add(String(id)));
         if (event.messageReply && event.messageReply.senderID) {
           checkIDs.add(String(event.messageReply.senderID));
         }
-
         const isDNDCmd = /^\/(dnd|away|brb|busy|setdnd|dndmsg|setaway|customdnd)\b/i.test(body);
-
         if (!isDNDCmd) {
           for (const uid of checkIDs) {
             if (uid === senderID) continue;
             if (!dndData[uid] || !dndData[uid].reason) continue;
-
             const info = dndData[uid];
-
             const dur = Math.floor((Date.now() - info.since) / 1000);
             const mins = Math.floor(dur / 60);
             const timeStr = mins > 60
               ? `${Math.floor(mins / 60)}h ${mins % 60}m`
               : mins > 0 ? `${mins}m` : `${dur}s`;
-
             let targetName = uid;
             let senderName = senderID;
             try {
@@ -598,7 +575,6 @@ async function handleMessage(api, event) {
               if (ui && ui[uid] && ui[uid].name) targetName = ui[uid].name;
               if (ui && ui[senderID] && ui[senderID].name) senderName = ui[senderID].name;
             } catch (_) {}
-
             let replyText;
             if (info.customReply && info.customReply.trim()) {
               replyText = info.customReply
@@ -615,7 +591,6 @@ async function handleMessage(api, event) {
                 `⏱️ ${timeStr} ago\n` +
                 `\n💡 Pore reply dibe.`;
             }
-
             api.sendMessage(replyText, threadID);
             break;
           }
@@ -624,55 +599,32 @@ async function handleMessage(api, event) {
     } catch (_) {}
   }
 
-   /* ═══════════ SONG SELECTION ═══════════ */
+  /* SONG SELECTION */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
-
-      /* ⚡ Lookup by reply MID, then fallback to per-user key */
       const search = songSearches.get(event.messageReply.messageID)
                   || songSearches.get(`fb_${threadID}_${senderID}`);
 
       if (search) {
         const num = parseInt(body.trim());
-
         if (Number.isFinite(num) && num >= 1 && num <= search.results.length) {
           const song = search.results[num - 1];
-
-          /* ⚡ Cleanup timers */
           if (search.timer) clearTimeout(search.timer);
           if (search.cleanupTimer) clearTimeout(search.cleanupTimer);
-
-          /* ⚡ Cleanup store keys */
           songSearches.delete(event.messageReply.messageID);
           songSearches.delete(`fb_${threadID}_${senderID}`);
 
           if (event.messageID) {
             try { api.setMessageReaction("⏳", event.messageID, threadID, () => {}); } catch (_) {}
           }
-
-          /* Try to unsend the list message — ignore errors if already deleted */
           try { api.unsendMessage(event.messageReply.messageID, () => {}); } catch (_) {}
 
           let tmpPath = null;
-
           try {
             console.log(`[song] downloading: ${song.title}`);
             console.log(`[song] videoId: ${song.videoId}`);
             console.log(`[song] cookies env: ${process.env.YT_COOKIES_B64 ? "yes" : "no"}`);
-
-            /* ⚡ Verify binaries (debug) */
-            try {
-              const { execSync } = require("child_process");
-              try {
-                const yt = execSync("which yt-dlp 2>/dev/null || command -v yt-dlp || echo notfound", { stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
-                console.log(`[song] yt-dlp bin: ${yt || "NOT FOUND"}`);
-              } catch (_) { console.log(`[song] yt-dlp bin: NOT FOUND`); }
-              try {
-                const ff = execSync("which ffmpeg 2>/dev/null || command -v ffmpeg || echo notfound", { stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
-                console.log(`[song] ffmpeg bin: ${ff || "NOT FOUND"}`);
-              } catch (_) { console.log(`[song] ffmpeg bin: NOT FOUND`); }
-            } catch (_) {}
 
             const { YtDlp } = require("ytdlp-nodejs");
             const ytdlp = new YtDlp();
@@ -680,7 +632,6 @@ async function handleMessage(api, event) {
             const url = `https://www.youtube.com/watch?v=${song.videoId}`;
             tmpPath = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
 
-            /* ⚡ Cookies path — multiple locations */
             const cookieCandidates = [
               path.join(__dirname, "cookies.txt"),
               path.join(__dirname, "..", "cookies.txt"),
@@ -701,7 +652,6 @@ async function handleMessage(api, event) {
               } catch (_) {}
             }
 
-            /* ⚡ Env var (base64) theke cookies decode */
             if (!cookiesPath && process.env.YT_COOKIES_B64) {
               try {
                 const decoded = Buffer.from(process.env.YT_COOKIES_B64, "base64").toString("utf8");
@@ -712,10 +662,6 @@ async function handleMessage(api, event) {
               } catch (e) {
                 console.log(`[song] cookie decode failed: ${e.message}`);
               }
-            }
-
-            if (!cookiesPath) {
-              console.log(`[song] WARNING: no cookies available — YouTube may block`);
             }
 
             console.log(`[song] yt-dlp starting... (cookies: ${cookiesPath ? "yes" : "no"})`);
@@ -730,9 +676,7 @@ async function handleMessage(api, event) {
               extractorArgs: "youtube:player_client=android,ios,web_safari"
             };
 
-            if (cookiesPath) {
-              ytdlpOpts.cookies = cookiesPath;
-            }
+            if (cookiesPath) ytdlpOpts.cookies = cookiesPath;
 
             const result = await ytdlp.downloadAudio(url, "mp3", ytdlpOpts);
 
@@ -771,7 +715,6 @@ async function handleMessage(api, event) {
             console.error("[song] yt-dlp failed:", e.message);
             if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
 
-            /* ⚡ Fallback: iTunes preview */
             try {
               const itunes = await axios.get("https://itunes.apple.com/search", {
                 params: { term: song.title, media: "music", limit: 1 },
@@ -856,7 +799,7 @@ async function handleMessage(api, event) {
     return;
   }
 
-  /* ═══════════ ANTILINK — UPGRADED ═══════════ */
+  /* ANTILINK */
   if (isGroup && settings.antilink && !senderIsAdmin && body) {
     const LINK_REGEX = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(chat\.whatsapp\.com\/[^\s]+)|(wa\.me\/[^\s]+)|(t\.me\/[^\s]+)|(telegram\.me\/[^\s]+)|(discord\.gg\/[^\s]+)|(discord\.com\/invite\/[^\s]+)|(facebook\.com\/groups\/[^\s]+)|(fb\.gg\/[^\s]+)|(instagram\.com\/[^\s]+)|(insta\.gram\/[^\s]+)|([a-z0-9-]+\.(com|net|org|io|ph|me|xyz|link|site|online|app|gg|tv|info|co|us|uk|ru|in|bd)(\/[^\s]*)?)/i;
 
@@ -870,20 +813,16 @@ async function handleMessage(api, event) {
 
     if (bad.length > 0) {
       try { await api.deleteMessage(event.messageID); } catch (_) {}
-
       if (!group.warnings) group.warnings = {};
       if (!group.warnings[senderID]) {
         group.warnings[senderID] = { count: 0, last: null };
       }
-
       group.warnings[senderID].count = (group.warnings[senderID].count || 0) + 1;
       group.warnings[senderID].last = new Date().toISOString();
       scheduleSave();
-
       const warnCount = group.warnings[senderID].count;
       const maxWarn = Number(settings.antilinkMaxWarn || 3);
       const action = settings.antilinkAction || "warn";
-
       if (warnCount >= maxWarn && action === "kick") {
         try { await api.removeUserFromGroup(senderID, threadID); } catch (_) {}
         api.sendMessage(`🚫 <@${senderID}> removed (${warnCount} warnings)`, threadID);
@@ -891,14 +830,12 @@ async function handleMessage(api, event) {
         scheduleSave();
         return;
       }
-
       if (warnCount >= maxWarn && action === "mute") {
         settings.mute = true;
         scheduleSave();
         api.sendMessage(`🔇 Group muted`, threadID);
         return;
       }
-
       api.sendMessage(`⚠️ <@${senderID}> link removed (${warnCount}/${maxWarn})`, threadID);
       return;
     }
@@ -925,8 +862,6 @@ async function handleMessage(api, event) {
 
   /* PREFIX */
   const prefix = (settings && settings.prefix) ? settings.prefix : config.prefix;
-
-  /* ⚡ OWNER PREFIX-LESS MODE */
   const isOwnerNoPrefix = isOwner && body && !body.startsWith(prefix);
 
   /* ADMIN-ONLY MODE */
@@ -934,7 +869,7 @@ async function handleMessage(api, event) {
     return api.sendMessage("🛡️ This group is in admin-only mode. Only admins can use commands.", threadID);
   }
 
-  /* ⚡ Determine command body */
+  /* Determine command body */
   let commandBody = null;
   let isOwnerCmd = false;
 
@@ -948,12 +883,14 @@ async function handleMessage(api, event) {
     }
   }
 
+  /* ⚡ DEBUG: log commandBody */
+  console.log(`[DEBUG-CMD] commandBody="${commandBody}" | isOwnerCmd=${isOwnerCmd}`);
+
   /* AUTO-LINK DOWNLOAD */
   if (body && !body.startsWith(prefix) && !isOwnerCmd && linkTriggers.length) {
     const urls = body.match(/https?:\/\/[^\s]+/gi) || [];
     if (urls.length) {
       const enabled = !isGroup || (settings && settings.autoDownload !== false);
-
       if (enabled) {
         for (const url of urls) {
           let matched = null;
@@ -993,7 +930,10 @@ async function handleMessage(api, event) {
   }
 
   /* If no valid command body, exit */
-  if (!commandBody) return;
+  if (!commandBody) {
+    console.log(`[DEBUG-EXIT] no commandBody — exiting`);
+    return;
+  }
 
   /* PARSE COMMAND */
   const parts = commandBody.split(/\s+/);
@@ -1001,6 +941,8 @@ async function handleMessage(api, event) {
   const args = parts;
 
   const command = commands.get(commandName);
+  console.log(`[DEBUG-LOOKUP] "${commandName}" → ${command ? "FOUND" : "NOT FOUND"}`);
+
   if (!command) return;
 
   /* FORBIDDEN */
@@ -1035,9 +977,11 @@ async function handleMessage(api, event) {
     return api.sendMessage("⛔ This command is for the bot owner only.", threadID);
   }
 
-  /* ═══════════ EXECUTE WITH AUTO-FIX ═══════════ */
+  /* EXECUTE WITH AUTO-FIX */
   try {
+    console.log(`[DEBUG-EXEC] executing: ${command.name}`);
     await command.execute(api, event, args, db, config, { prefix, commands });
+    console.log(`[DEBUG-EXEC] OK: ${command.name}`);
     if (group) {
       group.cmdCount = (group.cmdCount || 0) + 1;
       scheduleSave();
@@ -1045,26 +989,21 @@ async function handleMessage(api, event) {
     }
   } catch (e) {
     errl(`[${command.category || "?"}] command "${command.name}" failed:`, e.message);
-
-    /* ⚡ Auto-fix attempt (owner only) */
     if (isOwner) {
       try {
         const { tryAutoFix } = require("./utils/autoFix");
         const stack = e.stack || "";
         const stackMatch = stack.match(/at\s+(?:.*?\s+\()?(?:file:\/\/\/)?([^\s)]*commands[\\\/][^\s:)]+\.js)/);
         let filePath = null;
-
         if (stackMatch) {
           filePath = stackMatch[1];
           if (!path.isAbsolute(filePath)) {
             filePath = path.join(__dirname, filePath.replace(/^.*?commands/, "commands"));
           }
         }
-
         if (filePath && fs.existsSync(filePath)) {
           api.sendMessage(`🔧 Error detect, AI fix korchi...`, threadID);
           const fixed = await tryAutoFix(filePath, e.message, stack);
-
           if (fixed) {
             try { loadCommands(); } catch (_) {}
             api.sendMessage(`✅ Auto-fix hoyeche! Abar try koro: /${command.name}`, threadID);
@@ -1094,7 +1033,7 @@ async function handleEvent(api, event) {
   try { group = await getGroup(threadID); } catch (_) { return; }
   const s = group.settings;
 
-  /* ========== JOIN EVENT ========== */
+  /* JOIN EVENT */
   if (logMessageType === "log:subscribe") {
     const added = (logMessageData && logMessageData.addedParticipants) || [];
     const me = String(api.getCurrentUserID());
@@ -1122,11 +1061,9 @@ async function handleEvent(api, event) {
     if (!addedUsers.length) return;
 
     const adderID = String((logMessageData && logMessageData.author) || "");
-
     const { generateWelcomeCard, loadAvatar, loadGroupLogo } = require("./utils/welcomeCard");
 
     let groupInfo = getCachedGroupInfo(threadID);
-
     const t0 = Date.now();
 
     const [adderResult, groupLogo, ...avatars] = await Promise.all([
@@ -1143,9 +1080,7 @@ async function handleEvent(api, event) {
           : null;
         return { name, avatar };
       })(),
-
       loadGroupLogo(threadID).catch(() => null),
-
       ...addedUsers.map((u) => loadAvatar(u.id).catch(() => null))
     ]);
 
@@ -1159,7 +1094,6 @@ async function handleEvent(api, event) {
           maleCount: 0,
           femaleCount: 0
         };
-
         try {
           const ids = tInfo.participantIDs || [];
           const limited = ids.slice(0, 200);
@@ -1170,13 +1104,8 @@ async function handleEvent(api, event) {
             else if (g === 1) groupInfo.femaleCount++;
           }
         } catch (_) {}
-
         setCachedGroupInfo(threadID, groupInfo);
-
-        if (!group.name) {
-          group.name = groupInfo.name;
-          scheduleSave();
-        }
+        if (!group.name) { group.name = groupInfo.name; scheduleSave(); }
       } catch (_) {
         groupInfo = {
           name: group.name || "the group",
@@ -1192,24 +1121,16 @@ async function handleEvent(api, event) {
     for (let i = 0; i < addedUsers.length; i++) {
       const u = addedUsers[i];
       const addedAvatar = avatars[i];
-
       try {
         const cardBuffer = await generateWelcomeCard({
-          addedName: u.name,
-          addedAvatar,
-          adderName: adderResult.name,
-          adderAvatar: adderResult.avatar,
-          groupName: groupInfo.name,
-          groupLogo,
-          memberCount: groupInfo.memberCount,
-          adminCount: groupInfo.adminCount,
-          maleCount: groupInfo.maleCount,
-          femaleCount: groupInfo.femaleCount
+          addedName: u.name, addedAvatar,
+          adderName: adderResult.name, adderAvatar: adderResult.avatar,
+          groupName: groupInfo.name, groupLogo,
+          memberCount: groupInfo.memberCount, adminCount: groupInfo.adminCount,
+          maleCount: groupInfo.maleCount, femaleCount: groupInfo.femaleCount
         });
-
         const tmpPath = path.join(os.tmpdir(), `nexus_welcome_${u.id}_${Date.now()}.png`);
         await fs.writeFile(tmpPath, cardBuffer);
-
         api.sendMessage({
           body: `👋 Welcome ${u.name}!`,
           mentions: [{ tag: u.name, id: u.id }],
@@ -1221,10 +1142,8 @@ async function handleEvent(api, event) {
         console.error("[welcome-card] failed:", e.message);
         api.sendMessage(`👋 Welcome ${u.name}!`, threadID);
       }
-
       if (i < addedUsers.length - 1) await sleep(500);
     }
-
     return;
   }
 
@@ -1252,13 +1171,9 @@ async function handleEvent(api, event) {
         const u = await api.getUserInfo(leftID);
         name = (u && u[leftID] && u[leftID].name) || name;
       } catch (_) {}
-
       const text = s.goodbyeMsg
-        ? s.goodbyeMsg
-            .replace(/{name}/g, name)
-            .replace(/{group}/g, group.name || "this group")
+        ? s.goodbyeMsg.replace(/{name}/g, name).replace(/{group}/g, group.name || "this group")
         : `👋 ${name} left the group.`;
-
       api.sendMessage(text, threadID);
     }
     return;
@@ -1327,7 +1242,6 @@ function startHttpServer() {
   log(`Footer: ${config.footer && config.footer.trim() ? `"${config.footer}"` : "(disabled)"}`);
   log(`Auto Error Fix: ENABLED`);
 
-  /* Preload welcome background */
   try {
     const { preloadBackground } = require("./utils/welcomeCard");
     preloadBackground().then((ok) => {
@@ -1353,7 +1267,7 @@ function startHttpServer() {
     wrapSendMessage(api);
     api.setOptions({
       listenEvents: true,
-      selfListen: false,
+      selfListen: true,        /* ⚡ TEST — set false after testing */
       updatePresence: false,
       autoMarkRead: false,
       forceLogin: false,
@@ -1372,9 +1286,21 @@ function startHttpServer() {
       botNickConfig, loadBotNickConfig, buildFinalNickname
     };
 
+    /* ⚡ DEBUG: log MQTT setup */
+    console.log("[MQTT] listenMqtt starting...");
+
     api.listenMqtt(async (err, event) => {
-      if (err) { warn("listen error:", err.message || err); return; }
-      if (!event || !event.type) return;
+      if (err) {
+        console.log("[MQTT-ERR]", err.message || err);
+        return;
+      }
+      if (!event || !event.type) {
+        console.log("[MQTT] received event without type");
+        return;
+      }
+
+      /* ⚡ DEBUG: log every event */
+      console.log(`[MQTT-EVENT] type=${event.type} body="${(event.body || "").slice(0, 30)}" sender=${event.senderID} thread=${event.threadID}`);
 
       try {
         if (event.type === "message" || event.type === "message_reply") {
@@ -1384,6 +1310,7 @@ function startHttpServer() {
         }
       } catch (e) {
         errl("handler error:", e.message);
+        errl("handler stack:", e.stack);
       }
     });
   });
