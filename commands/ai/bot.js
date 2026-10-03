@@ -11,7 +11,13 @@ const path = require("path");
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
 const STORE_FILE = path.join(DATA_DIR, "bot_replies.json");
 
-/* ═══ Real human style — super short fallback ═══ */
+/* ⚡ In-memory fast storage (primary) */
+const BOT_MSG_MEMORY = new Map();
+
+/* ═══ Chat history per user ═══ */
+const chatHistory = new Map();
+
+/* ═══ Short natural fallbacks ═══ */
 const FALLBACK = [
   "Hmm 🥰",
   "Bolo na",
@@ -25,10 +31,21 @@ const FALLBACK = [
   "Ki? 🤭",
 ];
 
-/* ═══ Random natural delays (real people type slowly) ═══ */
+/* ═══ Bare "bot" trigger greetings ═══ */
+const GREETINGS = [
+  "Hmm? 🥰",
+  "Bolo na 😊",
+  "Ki holo?",
+  "Hmm? 🤭",
+  "Bolo ki bolbe",
+  "Ji bolo?",
+];
+
+/* ═══ Delay range ═══ */
 const MIN_DELAY = 800;
 const MAX_DELAY = 2500;
 
+/* ═══ File helpers ═══ */
 function loadStore() {
   try { return fs.readJsonSync(STORE_FILE) || {}; } catch (_) { return {}; }
 }
@@ -36,7 +53,55 @@ function saveStore(d) {
   try { fs.writeJsonSync(STORE_FILE, d); } catch (_) {}
 }
 
-/* ═══ Smart prompt — real girl, short answers ═══ */
+/* ═══ Message tracking (memory + file) ═══ */
+function isBotReply(messageID) {
+  const key = String(messageID);
+  if (BOT_MSG_MEMORY.has(key)) return true;
+  const store = loadStore();
+  return !!store[key];
+}
+
+function storeBotReply(messageID, threadID, userID) {
+  const key = String(messageID);
+  const entry = {
+    threadID: String(threadID),
+    userID: String(userID),
+    time: Date.now(),
+  };
+
+  /* Memory first */
+  BOT_MSG_MEMORY.set(key, entry);
+
+  /* Cleanup old memory (> 1 hour) */
+  if (BOT_MSG_MEMORY.size > 1000) {
+    const now = Date.now();
+    for (const [k, v] of BOT_MSG_MEMORY) {
+      if (now - (v.time || 0) > 60 * 60 * 1000) BOT_MSG_MEMORY.delete(k);
+    }
+  }
+
+  /* File backup */
+  try {
+    const store = loadStore();
+    const now = Date.now();
+    for (const k of Object.keys(store)) {
+      if (now - (store[k].time || 0) > 60 * 60 * 1000) delete store[k];
+    }
+    store[key] = entry;
+    saveStore(store);
+  } catch (_) {}
+}
+
+/* ═══ Chat history helpers ═══ */
+function pushHistory(userID, role, text) {
+  const key = String(userID);
+  let arr = chatHistory.get(key) || [];
+  arr.push({ role, text: text.slice(0, 200) });
+  if (arr.length > 6) arr = arr.slice(-6);
+  chatHistory.set(key, arr);
+}
+
+/* ═══ Build prompt — real girl, short replies ═══ */
 function buildPrompt(userMsg, userName, history) {
   let sys =
     `Tumi ekjon Bangladeshi meye, nam "Nexus". Tumi natural human er moto kotha bolo — ekdom real meye er moto.\n\n` +
@@ -60,7 +125,7 @@ function buildPrompt(userMsg, userName, history) {
   return `${sys}\n${userName}: ${userMsg}\nTumi:`;
 }
 
-/* ═══ Get AI reply — short and human-like ═══ */
+/* ═══ Get AI reply ═══ */
 async function getReply(userMsg, userName, history) {
   const prompt = buildPrompt(userMsg, userName, history);
   const seed = Math.floor(Math.random() * 999999);
@@ -83,14 +148,11 @@ async function getReply(userMsg, userName, history) {
       let text = await fn();
       if (text && typeof text === "string" && text.trim().length > 1) {
         text = text.trim();
-        /* Clean any prefix */
         text = text.replace(/^(AI|Assistant|Nexus|Bot|Girl|Tumi|User):\s*/i, "");
         text = text.replace(/^["']+|["']+$/g, "");
 
-        /* Force short — max 1 line */
+        /* Force short */
         if (text.includes("\n")) text = text.split("\n")[0].trim();
-
-        /* Max 120 chars */
         if (text.length > 120) {
           const cut = text.slice(0, 120);
           const lastSpace = cut.lastIndexOf(" ");
@@ -106,44 +168,13 @@ async function getReply(userMsg, userName, history) {
   return FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
 }
 
-/* ═══ Conversation memory (per user) ═══ */
-const chatHistory = new Map(); // userID → [{role, text}, ...]
-
-function pushHistory(userID, role, text) {
-  const key = String(userID);
-  let arr = chatHistory.get(key) || [];
-  arr.push({ role, text: text.slice(0, 200) });
-  if (arr.length > 6) arr = arr.slice(-6);
-  chatHistory.set(key, arr);
-}
-
-/* ═══ Bot reply tracking ═══ */
-function isBotReply(messageID) {
-  const store = loadStore();
-  return !!store[String(messageID)];
-}
-
-function storeBotReply(messageID, threadID, userID) {
-  const store = loadStore();
-  const now = Date.now();
-  for (const k of Object.keys(store)) {
-    if (now - (store[k].time || 0) > 60 * 60 * 1000) delete store[k];
-  }
-  store[String(messageID)] = {
-    threadID: String(threadID),
-    userID: String(userID),
-    time: now,
-  };
-  saveStore(store);
-}
-
-/* ═══ Delay helper ═══ */
+/* ═══ Sleep helper ═══ */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 module.exports = {
   name: "bot",
   aliases: ["nexus", "girly"],
-  version: "2.0.0",
+  version: "2.1.0",
   role: 0,
   description: "Real girl chat — short replies, no API key",
   usage: "/bot <message>",
@@ -162,54 +193,37 @@ module.exports = {
 
     /* ═══ Determine user message ═══ */
     let userMsg = args.join(" ").trim();
+    let isReplyTrigger = false;
 
-    /* If replying to bot's message */
-    if (messageReply && messageReply.messageID && isBotReply(messageReply.messageID)) {
-      userMsg = (body || "").trim();
-      userMsg = userMsg.replace(/^bot\s*/i, "").trim();
+    /* Reply trigger — check memory + file */
+    if (messageReply && messageReply.messageID) {
+      if (isBotReply(messageReply.messageID)) {
+        isReplyTrigger = true;
+        userMsg = (body || "").trim();
+        userMsg = userMsg.replace(/^bot\s*/i, "").trim();
+      }
     }
 
-    /* Strip "bot" prefix */
-    if (/^bot\s+/i.test(userMsg)) {
-      userMsg = userMsg.slice(4).trim();
-    } else if (/^bot$/i.test(userMsg)) {
-      userMsg = "";
+    /* If not reply trigger — check for "bot" prefix */
+    if (!isReplyTrigger) {
+      if (/^bot\s+/i.test(userMsg)) {
+        userMsg = userMsg.slice(4).trim();
+      } else if (/^bot$/i.test(userMsg)) {
+        userMsg = "";
+      }
     }
 
-        /* ⚡ If user just typed "bot", give a short cute greeting */
+    /* ═══ Bare "bot" — instant cute greeting ═══ */
     if (!userMsg) {
-      const greetings = [
-        "Hmm? 🥰",
-        "Bolo na 😊",
-        "Ki holo?",
-        "Hmm? 🤭",
-        "Bolo ki bolbe",
-        "Ji bolo?",
-      ];
-      userMsg = greetings[Math.floor(Math.random() * greetings.length)];
-      /* Send immediately — no AI call needed */
+      const greet = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
       react("💕");
       const delay = 600 + Math.random() * 800;
-      await new Promise((r) => setTimeout(r, delay));
-      return api.sendMessage(userMsg, threadID, (err, info) => {
+      await sleep(delay);
+      return api.sendMessage(greet, threadID, (err, info) => {
         if (!err && info && info.messageID) {
           storeBotReply(info.messageID, threadID, senderID);
         }
       });
-    }
-
-    /* ═══ Ensure message is for THIS sender only ═══ */
-    /* If reply is from different user, check that the original bot message was for them */
-    if (messageReply && messageReply.messageID) {
-      try {
-        const botCmd = module.exports;
-        const store = loadStore();
-        const stored = store[String(messageReply.messageID)];
-        if (stored && stored.userID !== String(senderID)) {
-          /* Different user replying to bot's message meant for someone else — still allow */
-          /* But don't mix history — treat as fresh */
-        }
-      } catch (_) {}
     }
 
     react("⏳");
@@ -223,7 +237,7 @@ module.exports = {
       }
     } catch (_) {}
 
-    /* ═══ Get reply ═══ */
+    /* ═══ Get AI reply ═══ */
     const history = chatHistory.get(String(senderID)) || [];
     let reply;
     try {
@@ -232,15 +246,15 @@ module.exports = {
       reply = FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
     }
 
-    /* ═══ Save to history ═══ */
+    /* ═══ Save history ═══ */
     pushHistory(senderID, "user", userMsg);
     pushHistory(senderID, "bot", reply);
 
-    /* ═══ Natural typing delay (random 0.8-2.5s) ═══ */
+    /* ═══ Natural typing delay ═══ */
     const delay = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY);
     await sleep(delay);
 
-    /* ═══ Send + track ═══ */
+    /* ═══ Send + store messageID ═══ */
     api.sendMessage(reply, threadID, (err, info) => {
       if (err || !info || !info.messageID) {
         react("❌");
