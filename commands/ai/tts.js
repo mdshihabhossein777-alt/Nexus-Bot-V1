@@ -1,24 +1,26 @@
 /**
  * commands/ai/tts.js
- * NEXUS BOT V1 — Text-to-speech (Microsoft Edge, no API key)
- * © 2026 Ariyan Shihab
+ * NEXUS BOT V1 — Text to Voice (Google Translate TTS)
+ * © 2026
  */
 
 const fs = require("fs-extra");
 const path = require("path");
-const os = require("os");
-const { EdgeTTS } = require("edge-tts");
+const axios = require("axios");
 
 module.exports = {
-  name: "tts",
-  aliases: ["speak", "voice"],
-  version: "2.0.0",
-  role: 0,
-  description: "Text-to-speech via Microsoft Edge",
-  usage: "/tts <text>",
-  category: "ai",
+  config: {
+    name: "tts",
+    aliases: ["say", "voice"],
+    version: "2.2",
+    countDown: 3,
+    role: 0,
+    shortDescription: "Text to voice",
+    category: "ai",
+    guide: "{pn} [lang] [text] - Ex: /tts bn ami Nexus"
+  },
 
-  execute: async function (api, event, args, db, config) {
+  onStart: async function ({ api, event, args }) {
     const { threadID, messageID } = event;
 
     const react = (emoji) => {
@@ -26,53 +28,76 @@ module.exports = {
       try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    const text = args.join(" ").trim();
+    /* ═══ Parse lang + text ═══ */
+    let lang = "bn";
+    let text = args.join(" ").trim();
+
+    if (args[0] && args[0].length === 2 && /^[a-z]{2}$/i.test(args[0])) {
+      lang = args[0].toLowerCase();
+      text = args.slice(1).join(" ").trim();
+    }
 
     if (!text) {
       react("❓");
-      return;
+      return api.sendMessage("Use: /tts bn Hello", threadID);
     }
 
     react("⏳");
 
-    let tmpPath = null;
+    const cacheDir = path.join(__dirname, "cache");
+    fs.ensureDirSync(cacheDir);
+    const filePath = path.join(cacheDir, `tts_${Date.now()}.mp3`);
 
     try {
-      /* ⚡ Bangla detect */
-      const isBangla = /[\u0980-\u09FF]/.test(text);
-      const voice = isBangla ? "bn-BD-NabanitaNeural" : "en-US-AriaNeural";
+      /* ═══ Google Translate TTS ═══ */
+      const url =
+        `https://translate.google.com/translate_tts` +
+        `?ie=UTF-8` +
+        `&tl=${lang}` +
+        `&client=tw-ob` +
+        `&q=${encodeURIComponent(text)}`;
 
-      const tts = new EdgeTTS();
-      tmpPath = path.join(os.tmpdir(), `nexus_tts_${Date.now()}.mp3`);
+      const res = await axios.get(url, {
+        responseType: "arraybuffer",
+        timeout: 20000,
+        maxContentLength: 5 * 1024 * 1024,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Referer": "https://translate.google.com/",
+          "Accept": "audio/mpeg,*/*"
+        }
+      });
 
-      await tts.synthesize(text, voice, tmpPath);
+      const buf = Buffer.from(res.data);
+      if (buf.length < 500) throw new Error("audio too small");
 
-      if (!fs.existsSync(tmpPath)) throw new Error("audio file not created");
+      /* ═══ Save + Send ═══ */
+      await fs.writeFile(filePath, buf);
 
       api.sendMessage({
         body: "",
-        attachment: fs.createReadStream(tmpPath)
+        attachment: fs.createReadStream(filePath)
       }, threadID, () => {
-        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        try { fs.unlinkSync(filePath); } catch (_) {}
       });
 
       react("✅");
 
     } catch (e) {
       console.error("[tts] error:", e.message);
-      if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
 
-      /* ⚡ Short error line */
+      /* ═══ Short error line ═══ */
       let errLine = "unknown error";
-      if (e.message.includes("ENOENT")) errLine = "edge-tts not installed";
-      else if (e.message.includes("timeout")) errLine = "network timeout";
-      else if (e.message.includes("audio file not created")) errLine = "audio generation failed";
+      if (e.message.includes("timeout")) errLine = "network timeout";
+      else if (e.message.includes("audio too small")) errLine = "audio generation failed";
+      else if (e.message.includes("ENOTFOUND")) errLine = "network unreachable";
       else errLine = e.message.slice(0, 60);
 
       react("❌");
-      api.sendMessage(`❌ ${errLine}`, threadID);
+      return api.sendMessage(`❌ ${errLine}`, threadID);
     }
   }
 };
 
-// © 2026 NEXUS BOT V1 | Ariyan Shihab
+// © 2026 NEXUS BOT V1
