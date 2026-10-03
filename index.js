@@ -575,7 +575,7 @@ async function handleMessage(api, event) {
               if (ui && ui[uid] && ui[uid].name) targetName = ui[uid].name;
               if (ui && ui[senderID] && ui[senderID].name) senderName = ui[senderID].name;
             } catch (_) {}
-            let replyText;
+                        let replyText;
             if (info.customReply && info.customReply.trim()) {
               replyText = info.customReply
                 .replace(/{name}/g, targetName)
@@ -591,6 +591,9 @@ async function handleMessage(api, event) {
                 `⏱️ ${timeStr} ago\n` +
                 `\n💡 Pore reply dibe.`;
             }
+
+            api.sendMessage(replyText, threadID);
+            break;
             api.sendMessage(replyText, threadID);
             break;
           }
