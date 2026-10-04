@@ -522,6 +522,27 @@ async function handleMessage(api, event) {
   if (!threadID || !senderID) return;
 
 
+
+  /* ⚡ CLOUD SAVE HOOK — "S" or "S <name>" (owner only) */
+  if (event.messageReply && body && /^S(\s|$)/i.test(body.trim())) {
+    try {
+      const isOwner = String(senderID) === String(config.ownerID) ||
+                      (config.adminIDs || []).map(String).includes(String(senderID));
+      if (isOwner) {
+        console.log(`[cloud-hook] triggered: "${body}"`);
+        const cloudCmd = commands.get("s");
+        if (cloudCmd && typeof cloudCmd.execute === "function") {
+          await cloudCmd.execute(api, event, [], db, config, { prefix: config.prefix, commands });
+          return;
+        }
+      }
+    } catch (e) {
+      errl("[cloud-hook] error:", e.message);
+    }
+  }
+
+
+
   /* ⚡ BLACKLIST CHECK — block blacklisted users */
   try {
     const BL_FILE = path.join(DATA_DIR, "blacklist.json");
