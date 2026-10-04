@@ -6,6 +6,7 @@
 
 const fs = require("fs-extra");
 const path = require("path");
+const githubPush = require("../../utils/githubPush");
 
 module.exports = {
   name: "delcmd",
@@ -77,6 +78,17 @@ module.exports = {
         if (m) cmdName = m[1];
       } catch (_) {}
 
+
+
+      /* Delete from GitHub */
+try {
+  const gitResult = await githubPush.deleteFile(relPath, `[delcmd] Delete ${relPath}`);
+  console.log(`[delcmd] GitHub: ${gitResult.success ? "✅" : "❌ " + gitResult.reason}`);
+} catch (e) {
+  console.log(`[delcmd] GitHub error: ${e.message}`);
+}
+
+      
       /* ═══ Delete ═══ */
       fs.unlinkSync(fullPath);
       console.log(`[delcmd] deleted: ${relPath}`);
