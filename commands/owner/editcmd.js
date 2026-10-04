@@ -6,6 +6,7 @@
 
 const fs = require("fs-extra");
 const path = require("path");
+const githubPush = require("../../utils/githubPush");
 
 module.exports = {
   name: "editcmd",
@@ -110,6 +111,15 @@ module.exports = {
         if (m) oldName = m[1];
       } catch (_) {}
 
+
+      /* Push to GitHub */
+try {
+  const gitResult = await githubPush.pushFile(relPath, code, `[editcmd] Update ${relPath}`);
+  console.log(`[editcmd] GitHub: ${gitResult.success ? "✅" : "❌ " + gitResult.reason}`);
+} catch (e) {
+  console.log(`[editcmd] GitHub error: ${e.message}`);
+}
+      
       /* Write new code */
       await fs.writeFile(fullPath, code, "utf8");
       console.log(`[editcmd] updated: ${relPath} (${code.length} bytes)`);
