@@ -28,7 +28,13 @@ async function uploadToCatbox(filePath) {
   form.append("fileToUpload", fs.createReadStream(filePath));
 
   const r = await axios.post("https://catbox.moe/user/api.php", form, {
-    headers: form.getHeaders(),
+    headers: {
+      ...form.getHeaders(),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Origin": "https://catbox.moe",
+      "Referer": "https://catbox.moe/"
+    },
     timeout: 120000,
     maxContentLength: 250 * 1024 * 1024,
     maxBodyLength: 250 * 1024 * 1024
@@ -37,6 +43,73 @@ async function uploadToCatbox(filePath) {
   const url = String(r.data).trim();
   if (!url.startsWith("http")) throw new Error("upload failed: " + url.slice(0, 80));
   return url;
+}
+
+/* ═══ Upload to 0x0.st (Fallback 1) ═══ */
+async function uploadTo0x0(filePath) {
+  const form = new FormData();
+  form.append("file", fs.createReadStream(filePath));
+
+  const r = await axios.post("https://0x0.st", form, {
+    headers: {
+      ...form.getHeaders(),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    },
+    timeout: 120000,
+    maxContentLength: 250 * 1024 * 1024,
+    maxBodyLength: 250 * 1024 * 1024
+  });
+
+  const url = String(r.data).trim();
+  if (!url.startsWith("http")) throw new Error("0x0 failed: " + url.slice(0, 80));
+  return url;
+}
+
+/* ═══ Upload to Uguu.se (Fallback 2) ═══ */
+async function uploadToUguu(filePath) {
+  const form = new FormData();
+  form.append("files[]", fs.createReadStream(filePath));
+
+  const r = await axios.post("https://uguu.se/upload.php", form, {
+    headers: {
+      ...form.getHeaders(),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    },
+    timeout: 120000,
+    maxContentLength: 250 * 1024 * 1024,
+    maxBodyLength: 250 * 1024 * 1024
+  });
+
+  const data = r.data;
+  const url = data?.files?.[0]?.url || (typeof data === "string" ? data.trim() : null);
+  if (!url || !url.startsWith("http")) throw new Error("uguu failed");
+  return url;
+}
+
+/* ═══ Upload with Multi-Source Fallback ═══ */
+async function uploadToCloud(filePath) {
+  const sources = [
+    { name: "catbox", fn: uploadToCatbox },
+    { name: "0x0.st", fn: uploadTo0x0 },
+    { name: "uguu.se", fn: uploadToUguu }
+  ];
+
+  let lastErr = null;
+
+  for (const src of sources) {
+    try {
+      console.log(`[cloud] trying: ${src.name}`);
+      const url = await src.fn(filePath);
+      console.log(`[cloud] ✅ ${src.name} success: ${url}`);
+      return { url, source: src.name };
+    } catch (e) {
+      console.log(`[cloud] ❌ ${src.name} failed: ${e.message.slice(0, 60)}`);
+      lastErr = e;
+      continue;
+    }
+  }
+
+  throw new Error("All upload sources failed: " + (lastErr?.message || "unknown"));
 }
 
 /* ═══ Detect media type ═══ */
@@ -150,8 +223,9 @@ module.exports = {
 
       /* ═══ Upload to Catbox ═══ */
       console.log(`[cloud] uploading ${(buf.length / 1024).toFixed(0)} KB .${ext}`);
-      const url = await uploadToCatbox(tmp);
-      console.log(`[cloud] uploaded: ${url}`);
+      const result = await uploadToCloud(tmp);
+      const url = result.url;
+      console.log(`[cloud] uploaded via ${result.source}: ${url}`);
 
       /* ═══ Determine name ═══ */
       const cloud = loadCloud();
@@ -180,10 +254,11 @@ module.exports = {
       }
 
       /* ═══ Save to cloud.json ═══ */
-      cloud[uid][name] = {
+          cloud[uid][name] = {
         name,
         type: mediaType,
         url,
+        source: result.source,
         size: buf.length,
         ext,
         savedAt: Date.now()
