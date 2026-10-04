@@ -1,18 +1,19 @@
 /**
  * commands/owner/makecmd.js
- * NEXUS BOT V1 — Create command file from reply
+ * NEXUS BOT V1 — Create command file + auto-push to GitHub
  * © 2026
  */
 
 const fs = require("fs-extra");
 const path = require("path");
+const githubPush = require("../../utils/githubPush");
 
 module.exports = {
   name: "makecmd",
   aliases: ["createcmd", "newcmd", "addcmd"],
-  version: "2.0.0",
+  version: "3.0.0",
   role: 2,
-  description: "Create command file from replied code",
+  description: "Create command file + push to GitHub",
   usage: "/makecmd <path>  (reply to code message)",
   category: "owner",
 
@@ -24,36 +25,32 @@ module.exports = {
       try { api.setMessageReaction(emoji, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ═══ Owner check ═══ */
+    /* Owner check */
     const isOwner = String(senderID) === String(config.ownerID) ||
                     (config.adminIDs || []).map(String).includes(String(senderID));
     if (!isOwner) { react("⛔"); return; }
 
-    /* ═══ Help ═══ */
+    /* Help */
     if (!args.length) {
       react("📘");
+      const ghStatus = githubPush.isConfigured() ? "✅ Enabled" : "❌ Not configured";
       return api.sendMessage(
         `🛠️ AUTO COMMAND CREATOR\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `📝 How to use:\n` +
         `1. Send code as a message to bot\n` +
         `2. Reply to that message\n` +
-        `3. Send: /makecmd <path>\n` +
-        `\n` +
+        `3. Send: /makecmd <path>\n\n` +
         `📌 Path Examples:\n` +
         `  /makecmd commands/fun/test.js\n` +
-        `  /makecmd fun/test.js\n` +
-        `  /makecmd test.js\n` +
-        `\n` +
-        `⚡ Features:\n` +
-        `  ✅ Auto-create file\n` +
-        `  ✅ Auto-reload commands\n` +
-        `  ✅ Instant live`,
+        `  /makecmd fun/test.js\n\n` +
+        `🌐 GitHub Push: ${ghStatus}\n` +
+        `⚡ Auto-reload: enabled`,
         threadID
       );
     }
 
-    /* ═══ Reply check ═══ */
+    /* Reply check */
     if (!messageReply || !messageReply.body) {
       react("❓");
       return api.sendMessage("❌ Reply to a message containing the code.", threadID);
@@ -62,12 +59,9 @@ module.exports = {
     react("⏳");
 
     try {
-      /* ═══ Parse path ═══ */
+      /* Parse path */
       let relPath = args[0].trim().replace(/\\/g, "/");
-
-      if (!relPath.startsWith("commands/")) {
-        relPath = "commands/" + relPath;
-      }
+      if (!relPath.startsWith("commands/")) relPath = "commands/" + relPath;
       if (!relPath.endsWith(".js")) relPath += ".js";
 
       /* Security */
@@ -76,7 +70,7 @@ module.exports = {
         return api.sendMessage("❌ Invalid path", threadID);
       }
 
-      /* ═══ Get code from reply ═══ */
+      /* Get code */
       let code = messageReply.body || "";
       code = code.replace(/^```(?:javascript|js|node)?\n?/i, "").replace(/\n?```$/i, "").trim();
 
@@ -87,10 +81,10 @@ module.exports = {
 
       if (!/module\.exports|exports\./i.test(code)) {
         react("⚠️");
-        return api.sendMessage("⚠️ Code missing `module.exports`. Continue anyway?", threadID);
+        return api.sendMessage("⚠️ Code missing `module.exports`.", threadID);
       }
 
-      /* ═══ Write file ═══ */
+      /* Write file locally */
       const fullPath = path.join(__dirname, "..", "..", relPath);
       fs.ensureDirSync(path.dirname(fullPath));
       const existed = fs.existsSync(fullPath);
@@ -98,7 +92,21 @@ module.exports = {
 
       console.log(`[makecmd] ${existed ? "updated" : "created"}: ${relPath} (${code.length} bytes)`);
 
-      /* ═══ Reload commands ═══ */
+      /* Push to GitHub */
+      let gitResult = { success: false, reason: "not attempted" };
+      try {
+        gitResult = await githubPush.pushFile(
+          relPath,
+          code,
+          `[makecmd] ${existed ? "Update" : "Add"} ${relPath}`
+        );
+        console.log(`[makecmd] GitHub push: ${gitResult.success ? "✅" : "❌ " + gitResult.reason}`);
+      } catch (e) {
+        gitResult = { success: false, reason: e.message };
+        console.log(`[makecmd] GitHub push error: ${e.message}`);
+      }
+
+      /* Reload commands */
       try {
         if (global.NEXUS && typeof global.NEXUS.loadCommands === "function") {
           global.NEXUS.loadCommands();
@@ -108,18 +116,25 @@ module.exports = {
         console.log(`[makecmd] reload fail: ${e.message}`);
       }
 
-      /* ═══ Get command name ═══ */
+      /* Get command name */
       let cmdName = "unknown";
       const m = code.match(/name\s*:\s*["']([^"']+)["']/);
       if (m) cmdName = m[1];
 
       react("✅");
+
+      const ghLine = gitResult.success
+        ? `🌐 GitHub: ✅ ${gitResult.action}`
+        : `🌐 GitHub: ❌ ${(gitResult.reason || "").slice(0, 40)}`;
+
       return api.sendMessage(
         `✅ Command ${existed ? "UPDATED" : "CREATED"}\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `📁 ${relPath}\n` +
         `🏷️ ${cmdName}\n` +
         `📊 ${code.length} bytes\n` +
+        `${ghLine}\n` +
+        `🔄 Reloaded: yes\n` +
         `💡 Test: /${cmdName}`,
         threadID
       );
