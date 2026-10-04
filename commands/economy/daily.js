@@ -1,23 +1,79 @@
-const REWARD = 500, COOLDOWN = 24*60*60*1000;
+/**
+ * commands/economy/daily.js
+ * NEXUS BOT V1 — Daily reward (100K coins)
+ * © 2026
+ */
+
 module.exports = {
-  name: "daily", version: "1.0.0", role: 0,
-  description: "Claim daily reward (every 24h)", usage: "/daily",
-  execute: async function (api, event, args, db) {
-    const { threadID, senderID } = event;
+  name: "daily",
+  aliases: ["claim", "dailys"],
+  version: "1.0.0",
+  role: 0,
+  description: "Claim daily reward",
+  usage: "/daily",
+  category: "economy",
+
+  execute: async function (api, event, args, db, config) {
+    const { threadID, messageID, senderID } = event;
+
+    const react = (e) => {
+      if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
+    };
+
+    react("⏳");
+
     try {
-      const u = await db.getUser(senderID);
+      const user = await db.getUser(senderID);
       const now = Date.now();
-      const last = u.dailyClaim ? new Date(u.dailyClaim).getTime() : 0;
-      if (now - last < COOLDOWN) {
-        const r = COOLDOWN - (now - last);
-        return api.sendMessage(`⏳ Already claimed. Come back in ${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m.`, threadID);
+      const COOLDOWN = 24 * 60 * 60 * 1000; /* 24 hours */
+      const REWARD = 100000; /* ⚡ 100K coins */
+
+      /* ═══ Check cooldown ═══ */
+      if (user.dailyClaim && now - user.dailyClaim < COOLDOWN) {
+        const remain = COOLDOWN - (now - user.dailyClaim);
+        const hrs = Math.floor(remain / (60 * 60 * 1000));
+        const mins = Math.floor((remain % (60 * 60 * 1000)) / (60 * 1000));
+        const secs = Math.floor((remain % (60 * 1000)) / 1000);
+
+        react("⏳");
+        return api.sendMessage(
+          `⏳ Daily cooldown!\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `⏰ Next claim in: **${hrs}h ${mins}m ${secs}s**`,
+          threadID
+        );
       }
-      u.balance = (u.balance||0) + REWARD;
-      u.dailyClaim = new Date();
-      await u.save();
-      db.cache.set(`user_${senderID}`, u, 60);
-      api.sendMessage(`🎁 DAILY REWARD!\n💰 +$${REWARD.toLocaleString()}\n👛 Wallet: $${u.balance.toLocaleString()}`, threadID);
-    } catch (e) { api.sendMessage("Error: " + e.message, threadID); }
+
+      /* ═══ Give reward ═══ */
+      user.balance = (user.balance || 0) + REWARD;
+      user.dailyClaim = now;
+      await user.save();
+
+      /* ═══ Get user name ═══ */
+      let name = "User";
+      try {
+        const ui = await api.getUserInfo(senderID);
+        name = ui[senderID]?.name || "User";
+      } catch (_) {}
+
+      react("💎");
+      return api.sendMessage(
+        `💎 DAILY REWARD\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `👤 ${name}\n` +
+        `💵 Reward: **+${REWARD.toLocaleString()}** $coins\n` +
+        `💰 New Balance: **${user.balance.toLocaleString()}** $coins\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `⏰ Come back in 24 hours!`,
+        threadID
+      );
+
+    } catch (e) {
+      console.error("[daily] error:", e.message);
+      react("❌");
+      api.sendMessage(`❌ ${e.message.slice(0, 60)}`, threadID);
+    }
   }
 };
-// © NEXUS BOT V1 | nexus-bot-v1.vercel.app
+
+// © 2026 NEXUS BOT V1

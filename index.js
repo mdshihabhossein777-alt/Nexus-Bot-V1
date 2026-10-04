@@ -394,7 +394,7 @@ function wrapSendMessage(api) {
    8. COMMAND LOADER
    --------------------------------------------------------------------------- */
 const COMMANDS_DIR = path.join(__dirname, "commands");
-const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom"];
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools,imagegen"];
 
 const commands = new Map();
 const linkTriggers = [];
@@ -494,6 +494,20 @@ async function handleMessage(api, event) {
   console.log(`[DEBUG-MSG] body="${body.slice(0, 50)}" sender=${senderID} thread=${threadID} isGroup=${event.isGroup}`);
 
   if (!threadID || !senderID) return;
+
+
+  /* ⚡ BLACKLIST CHECK — block blacklisted users */
+  try {
+    const BL_FILE = path.join(DATA_DIR, "blacklist.json");
+    if (fs.existsSync(BL_FILE)) {
+      const bl = fs.readJsonSync(BL_FILE) || {};
+      if (bl[String(senderID)]) {
+        console.log(`[blacklist] blocked: ${senderID}`);
+        return; /* Silent block — bot ignore kore */
+      }
+    }
+  } catch (_) {}
+
 
   /* ⚡ PREFIX INFO HOOK */
   if (body) {
