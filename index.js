@@ -343,6 +343,23 @@ const FORBIDDEN_COMMANDS = new Set([
   "gaycheck", "uglycheck", "hotcheck"
 ]);
 
+
+/* ⚡ Bot message tracker for angry-delete system */
+const BOT_MESSAGES = new Map(); /* messageID → { threadID, timestamp } */
+
+/* ⚡ Angry emojis that trigger auto-unsend */
+const ANGRY_EMOJIS = ["😡", "🤬", "😠", "💢", "👿", "😾", "🖕", "👎", "🤮", "💩"];
+
+/* ⚡ Cleanup old entries every 5 min */
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000; /* 30 min */
+  for (const [id, data] of BOT_MESSAGES) {
+    if (data.timestamp < cutoff) BOT_MESSAGES.delete(id);
+  }
+}, 5 * 60 * 1000);
+
+
+
 /* ---------------------------------------------------------------------------
    7. ANTI-BAN WRAPPER
    --------------------------------------------------------------------------- */
@@ -374,8 +391,17 @@ function wrapSendMessage(api) {
         let cb = null;
         if (typeof rest[rest.length - 1] === "function") cb = rest.pop();
         try {
-          original(payload, threadID, ...rest, (err, info) => {
+                    original(payload, threadID, ...rest, (err, info) => {
             if (err) warn("sendMessage error:", err.message || err);
+
+            /* ⚡ Track bot's sent message IDs for angry-delete */
+            if (!err && info && info.messageID) {
+              BOT_MESSAGES.set(String(info.messageID), {
+                threadID: String(threadID),
+                timestamp: Date.now()
+              });
+            }
+
             if (cb) { try { cb(err, info); } catch (_) {} }
             resolve(info || null);
           });
@@ -394,7 +420,7 @@ function wrapSendMessage(api) {
    8. COMMAND LOADER
    --------------------------------------------------------------------------- */
 const COMMANDS_DIR = path.join(__dirname, "commands");
-const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools,imagegen"];
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools,imagegen,cloud"];
 
 const commands = new Map();
 const linkTriggers = [];
@@ -1303,7 +1329,7 @@ function startHttpServer() {
       botNickConfig, loadBotNickConfig, buildFinalNickname
     };
 
-    /* ⚡ DEBUG: log MQTT setup */
+        /* ⚡ DEBUG: log MQTT setup */
     console.log("[MQTT] listenMqtt starting...");
 
     api.listenMqtt(async (err, event) => {
@@ -1322,8 +1348,50 @@ function startHttpServer() {
       try {
         if (event.type === "message" || event.type === "message_reply") {
           await handleMessage(api, event);
+
         } else if (event.type === "event") {
           await handleEvent(api, event);
+
+        } else if (event.type === "message_reaction") {
+          /* ═══ 😡 ANGRY EMOJI AUTO-DELETE ═══ */
+          try {
+            const reaction = event.reaction || "";
+            const messageID = String(event.messageID || "");
+
+            /* Check angry emoji + bot's own message */
+            if (ANGRY_EMOJIS.includes(reaction) && BOT_MESSAGES.has(messageID)) {
+              const tracked = BOT_MESSAGES.get(messageID);
+              console.log(`[angry] ${reaction} detected on bot msg ${messageID}`);
+
+              /* Check if angrydel enabled for this group */
+              let adEnabled = true;
+              try {
+                const AD_FILE = path.join(DATA_DIR, "angrydel.json");
+                if (fs.existsSync(AD_FILE)) {
+                  const ad = fs.readJsonSync(AD_FILE) || {};
+                  const tid = String(event.threadID || tracked.threadID || "");
+                  adEnabled = ad[tid] !== false;
+                }
+              } catch (_) {}
+
+              if (adEnabled) {
+                try {
+                  api.unsendMessage(messageID, (e) => {
+                    if (!e) {
+                      console.log(`[angry] ✅ unsent message ${messageID}`);
+                      BOT_MESSAGES.delete(messageID);
+                    } else {
+                      console.log(`[angry] unsend fail: ${e.message || e}`);
+                    }
+                  });
+                } catch (e) {
+                  console.log(`[angry] unsend error: ${e.message}`);
+                }
+              }
+            }
+          } catch (e) {
+            errl("[angry] error:", e.message);
+          }
         }
       } catch (e) {
         errl("handler error:", e.message);

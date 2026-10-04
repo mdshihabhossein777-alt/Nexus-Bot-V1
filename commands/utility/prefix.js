@@ -1,6 +1,6 @@
 /**
  * commands/utility/prefix.js
- * NEXUS BOT V1 — Premium prefix info card
+ * NEXUS BOT V1 — Ultra Premium Prefix Card v4
  * © 2026
  */
 
@@ -49,27 +49,154 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/* ═══ Draw circular avatar with glow ═══ */
-async function drawAvatar(ctx, buf, cx, cy, r) {
-  /* Outer glow layers */
-  for (let i = 3; i >= 1; i--) {
+/* ═══ Draw 4-point star/sparkle ═══ */
+function drawSparkle(ctx, x, y, size, color, blur = 15) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y - size);
+  ctx.quadraticCurveTo(x + size * 0.18, y - size * 0.18, x + size, y);
+  ctx.quadraticCurveTo(x + size * 0.18, y + size * 0.18, x, y + size);
+  ctx.quadraticCurveTo(x - size * 0.18, y + size * 0.18, x - size, y);
+  ctx.quadraticCurveTo(x - size * 0.18, y - size * 0.18, x, y - size);
+  ctx.closePath();
+  ctx.fill();
+
+  /* Rays */
+  ctx.lineWidth = size * 0.12;
+  ctx.strokeStyle = color;
+  for (let i = 0; i < 4; i++) {
+    const angle = (Math.PI / 2) * i;
+    const x1 = x + Math.cos(angle) * size * 1.3;
+    const y1 = y + Math.sin(angle) * size * 1.3;
+    const x2 = x + Math.cos(angle) * size * 2;
+    const y2 = y + Math.sin(angle) * size * 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, r + i * 6, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255, 215, 0, ${0.15 / i})`;
-    ctx.lineWidth = 8;
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
     ctx.stroke();
   }
 
-  /* Gradient ring */
-  const ringGrad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-  ringGrad.addColorStop(0, "#FFD700");
-  ringGrad.addColorStop(0.5, "#FFA500");
-  ringGrad.addColorStop(1, "#FFD700");
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.25, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ═══ Draw diamond ═══ */
+function drawDiamond(ctx, x, y, size, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
 
   ctx.beginPath();
-  ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+  ctx.moveTo(0, -size);
+  ctx.lineTo(size * 0.6, 0);
+  ctx.lineTo(0, size);
+  ctx.lineTo(-size * 0.6, 0);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  /* Highlight */
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.5);
+  ctx.lineTo(size * 0.3, 0);
+  ctx.lineTo(0, size * 0.5);
+  ctx.lineTo(-size * 0.3, 0);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.shadowBlur = 0;
+  ctx.fill();
+
+  /* Center dot */
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ═══ Draw ornamental corner ═══ */
+function drawCornerOrnament(ctx, x, y, dx, dy, size, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+
+  /* Main L-shape */
+  ctx.beginPath();
+  ctx.moveTo(x, y + dy * size);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x + dx * size, y);
+  ctx.stroke();
+
+  /* Inner smaller L */
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(x + dx * 8, y + dy * (size - 8));
+  ctx.lineTo(x + dx * 8, y + dy * 8);
+  ctx.lineTo(x + dx * (size - 8), y + dy * 8);
+  ctx.stroke();
+
+  /* Corner dot */
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.arc(x + dx * 4, y + dy * 4, 3, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ═══ Draw circular avatar with premium rings ═══ */
+async function drawAvatar(ctx, buf, cx, cy, r) {
+  /* Multi-layer outer glow */
+  for (let i = 6; i >= 1; i--) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + i * 5, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 215, 0, ${0.08 / i})`;
+    ctx.lineWidth = 12;
+    ctx.stroke();
+  }
+
+  /* Purple glow */
+  const outerGlow = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 2);
+  outerGlow.addColorStop(0, "rgba(255, 215, 0, 0.4)");
+  outerGlow.addColorStop(0.5, "rgba(255, 20, 147, 0.15)");
+  outerGlow.addColorStop(1, "transparent");
+  ctx.fillStyle = outerGlow;
+  ctx.fillRect(cx - r * 2.5, cy - r * 2.5, r * 5, r * 5);
+
+  /* Main gold gradient ring */
+  const ringGrad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+  ringGrad.addColorStop(0, "#FFD700");
+  ringGrad.addColorStop(0.25, "#FFA500");
+  ringGrad.addColorStop(0.5, "#FFFF00");
+  ringGrad.addColorStop(0.75, "#FFA500");
+  ringGrad.addColorStop(1, "#FFD700");
+
+  ctx.save();
+  ctx.shadowColor = "#FFD700";
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
   ctx.strokeStyle = ringGrad;
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.restore();
+
+  /* Inner thin white */
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 1, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.lineWidth = 2;
   ctx.stroke();
 
   /* Clip + draw avatar */
@@ -96,21 +223,19 @@ async function drawAvatar(ctx, buf, cx, cy, r) {
   }
   ctx.restore();
 
-  /* Inner white ring */
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  /* Sparkles around avatar */
+  drawSparkle(ctx, cx - r - 15, cy - 25, 5, "#FFD700", 12);
+  drawSparkle(ctx, cx + r + 15, cy + 20, 6, "#ff69b4", 12);
+  drawSparkle(ctx, cx + r - 5, cy - r - 10, 4, "#ffffff", 10);
 }
 
 /* ═══ Main command ═══ */
 module.exports = {
   name: "prefix",
   aliases: ["botprefix"],
-  version: "3.0.0",
+  version: "4.0.0",
   role: 0,
-  description: "Show bot prefix info",
+  description: "Show premium bot prefix info",
   usage: "/prefix",
   category: "utility",
 
@@ -140,7 +265,7 @@ module.exports = {
     react("⏳");
 
     try {
-      /* ═══ Get data ═══ */
+      /* ═══ Data ═══ */
       let prefix = config.prefix || "/";
       if (event.isGroup) {
         try {
@@ -157,159 +282,246 @@ module.exports = {
         }
       } catch (_) {}
 
+      const botName = config.brandName || "NEXUS BOT V1";
+      const botOwner = config.brandOwner || "Ariyan Shihab";
+      const commandsCount = (global.NEXUS && global.NEXUS.commands) ? global.NEXUS.commands.size : 0;
+
       /* ═══ Get avatar ═══ */
       const avatarBuf = await getAvatar(senderID);
 
       /* ═══ Canvas ═══ */
-      const W = 900;
-      const H = 600;
+      const W = 1000;
+      const H = 700;
       const canvas = createCanvas(W, H);
       const ctx = canvas.getContext("2d");
 
-      /* ═══ Background gradient (premium dark) ═══ */
+      /* ═══════ BACKGROUND ═══════ */
       const bg = ctx.createLinearGradient(0, 0, W, H);
-      bg.addColorStop(0, "#0f0c29");
-      bg.addColorStop(0.5, "#302b63");
-      bg.addColorStop(1, "#24243e");
+      bg.addColorStop(0, "#0a0620");
+      bg.addColorStop(0.3, "#1a0a3a");
+      bg.addColorStop(0.6, "#2a0a4a");
+      bg.addColorStop(1, "#0a0620");
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, W, H);
 
-      /* ═══ Radial glow (center top) ═══ */
-      const glow1 = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, 500);
-      glow1.addColorStop(0, "rgba(255, 215, 0, 0.25)");
-      glow1.addColorStop(1, "rgba(255, 215, 0, 0)");
+      /* Purple glow (top-left) */
+      const glow1 = ctx.createRadialGradient(100, 100, 0, 100, 100, 500);
+      glow1.addColorStop(0, "rgba(138, 43, 226, 0.35)");
+      glow1.addColorStop(1, "transparent");
       ctx.fillStyle = glow1;
       ctx.fillRect(0, 0, W, H);
 
-      /* ═══ Purple glow bottom-left ═══ */
-      const glow2 = ctx.createRadialGradient(0, H, 0, 0, H, 400);
-      glow2.addColorStop(0, "rgba(138, 43, 226, 0.3)");
-      glow2.addColorStop(1, "rgba(138, 43, 226, 0)");
+      /* Pink glow (top-right) */
+      const glow2 = ctx.createRadialGradient(W - 100, 100, 0, W - 100, 100, 500);
+      glow2.addColorStop(0, "rgba(255, 20, 147, 0.3)");
+      glow2.addColorStop(1, "transparent");
       ctx.fillStyle = glow2;
       ctx.fillRect(0, 0, W, H);
 
-      /* ═══ Pink glow top-right ═══ */
-      const glow3 = ctx.createRadialGradient(W, 0, 0, W, 0, 400);
-      glow3.addColorStop(0, "rgba(255, 20, 147, 0.25)");
-      glow3.addColorStop(1, "rgba(255, 20, 147, 0)");
+      /* Gold glow (center) */
+      const glow3 = ctx.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, 500);
+      glow3.addColorStop(0, "rgba(255, 215, 0, 0.15)");
+      glow3.addColorStop(1, "transparent");
       ctx.fillStyle = glow3;
       ctx.fillRect(0, 0, W, H);
 
-      /* ═══ Decorative circles ═══ */
-      for (let i = 0; i < 15; i++) {
+      /* Cyan glow (bottom) */
+      const glow4 = ctx.createRadialGradient(W / 2, H, 0, W / 2, H, 400);
+      glow4.addColorStop(0, "rgba(0, 200, 255, 0.2)");
+      glow4.addColorStop(1, "transparent");
+      ctx.fillStyle = glow4;
+      ctx.fillRect(0, 0, W, H);
+
+      /* ═══════ PARTICLE FIELD ═══════ */
+      for (let i = 0; i < 80; i++) {
         const x = Math.random() * W;
         const y = Math.random() * H;
-        const r = 1 + Math.random() * 3;
+        const r = 0.5 + Math.random() * 1.8;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.3})`;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.15 + Math.random() * 0.4})`;
         ctx.fill();
       }
 
-      /* ═══ Top border line (gradient) ═══ */
-      const borderGrad = ctx.createLinearGradient(0, 0, W, 0);
-      borderGrad.addColorStop(0, "rgba(255, 215, 0, 0)");
-      borderGrad.addColorStop(0.5, "rgba(255, 215, 0, 1)");
-      borderGrad.addColorStop(1, "rgba(255, 215, 0, 0)");
-      ctx.fillStyle = borderGrad;
-      ctx.fillRect(0, 0, W, 3);
+      /* Small sparkles scattered */
+      const sparklePositions = [
+        [120, 150, 6], [880, 180, 7], [200, 500, 5], [800, 520, 6],
+        [150, 380, 4], [850, 380, 5], [500, 620, 6], [300, 80, 5],
+        [700, 80, 4], [100, 620, 5], [900, 620, 6]
+      ];
+      for (const [x, y, s] of sparklePositions) {
+        const colors = ["#FFD700", "#ff69b4", "#00ffff", "#ffffff", "#ff00ff"];
+        const c = colors[Math.floor(Math.random() * colors.length)];
+        drawSparkle(ctx, x, y, s, c, 12);
+      }
 
-      /* ═══ Bottom border line ═══ */
-      ctx.fillStyle = borderGrad;
-      ctx.fillRect(0, H - 3, W, 3);
+      /* ═══════ BORDER FRAME ═══════ */
+      /* Outer border */
+      ctx.save();
+      ctx.shadowColor = "#FFD700";
+      ctx.shadowBlur = 20;
+      const borderGrad = ctx.createLinearGradient(0, 0, W, H);
+      borderGrad.addColorStop(0, "#FFD700");
+      borderGrad.addColorStop(0.33, "#ff69b4");
+      borderGrad.addColorStop(0.66, "#8a2be2");
+      borderGrad.addColorStop(1, "#FFD700");
+      ctx.strokeStyle = borderGrad;
+      ctx.lineWidth = 4;
+      roundRect(ctx, 15, 15, W - 30, H - 30, 25);
+      ctx.stroke();
+      ctx.restore();
 
-      /* ═══ Title ═══ */
+      /* Inner thin border */
+      ctx.strokeStyle = "rgba(255, 215, 0, 0.3)";
+      ctx.lineWidth = 1;
+      roundRect(ctx, 25, 25, W - 50, H - 50, 20);
+      ctx.stroke();
+
+      /* ═══════ CORNER ORNAMENTS ═══════ */
+      drawCornerOrnament(ctx, 35, 35, 1, 1, 40, "#FFD700");
+      drawCornerOrnament(ctx, W - 35, 35, -1, 1, 40, "#ff69b4");
+      drawCornerOrnament(ctx, 35, H - 35, 1, -1, 40, "#8a2be2");
+      drawCornerOrnament(ctx, W - 35, H - 35, -1, -1, 40, "#00ffff");
+
+      /* ═══════ TOP TITLE BAR ═══════ */
+      /* Left decorative line */
+      ctx.fillStyle = "rgba(255, 215, 0, 0.6)";
+      ctx.fillRect(80, 70, 200, 2);
+      drawDiamond(ctx, 60, 71, 8, "#FFD700");
+
+      /* Right decorative line */
+      ctx.fillStyle = "rgba(255, 215, 0, 0.6)";
+      ctx.fillRect(W - 280, 70, 200, 2);
+      drawDiamond(ctx, W - 60, 71, 8, "#FFD700");
+
+      /* Title */
       ctx.textAlign = "center";
-      ctx.font = "bold 42px sans-serif";
+      ctx.font = "bold 44px Georgia, serif";
+      ctx.fillStyle = "#FFD700";
+      ctx.shadowColor = "#FFD700";
+      ctx.shadowBlur = 25;
+      ctx.fillText("P R E F I X", W / 2, 90);
+      ctx.shadowBlur = 0;
+
+      /* Subtitle */
+      ctx.font = "italic 16px Georgia, serif";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.fillText("— Command Information —", W / 2, 118);
+
+      /* ═══════ AVATAR ═══════ */
+      await drawAvatar(ctx, avatarBuf, W / 2, 250, 95);
+
+      /* ═══════ USER NAME ═══════ */
+      ctx.textAlign = "center";
+      ctx.font = "bold 38px Georgia, serif";
+
+      /* Glow */
+      ctx.shadowColor = "#FFD700";
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = "#FFD700";
+      ctx.fillText(userName, W / 2, 410);
+
+      /* White text on top */
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(userName, W / 2, 410);
+
+      /* Small caption */
+      ctx.font = "italic 15px Georgia, serif";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.fillText("Welcome back!", W / 2, 438);
+
+      /* ═══════ DIVIDER with diamond ═══════ */
+      const divY = 465;
+      ctx.fillStyle = "rgba(255, 215, 0, 0.4)";
+      ctx.fillRect(120, divY, W / 2 - 150, 1);
+      ctx.fillRect(W / 2 + 30, divY, W / 2 - 150, 1);
+      drawDiamond(ctx, W / 2, divY, 8, "#FFD700");
+
+      /* ═══════ PREFIX BOX ═══════ */
+      const boxW = 480;
+      const boxH = 110;
+      const boxX = W / 2 - boxW / 2;
+      const boxY = 490;
+
+      /* Outer glow */
+      ctx.save();
+      ctx.shadowColor = "#FFD700";
+      ctx.shadowBlur = 25;
+      roundRect(ctx, boxX, boxY, boxW, boxH, 20);
+      const boxBg = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
+      boxBg.addColorStop(0, "rgba(255, 215, 0, 0.12)");
+      boxBg.addColorStop(0.5, "rgba(255, 20, 147, 0.08)");
+      boxBg.addColorStop(1, "rgba(138, 43, 226, 0.12)");
+      ctx.fillStyle = boxBg;
+      ctx.fill();
+      ctx.restore();
+
+      /* Border */
+      roundRect(ctx, boxX, boxY, boxW, boxH, 20);
+      const boxBorderGrad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY);
+      boxBorderGrad.addColorStop(0, "rgba(255, 215, 0, 0.7)");
+      boxBorderGrad.addColorStop(0.5, "rgba(255, 20, 147, 0.9)");
+      boxBorderGrad.addColorStop(1, "rgba(255, 215, 0, 0.7)");
+      ctx.strokeStyle = boxBorderGrad;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      /* Label */
+      ctx.font = "bold 14px Georgia, serif";
+      ctx.fillStyle = "rgba(255, 215, 0, 0.85)";
+      ctx.textAlign = "center";
+      ctx.fillText("P R E F I X", W / 2, boxY + 30);
+
+      /* Small diamonds on label sides */
+      drawDiamond(ctx, W / 2 - 70, boxY + 24, 5, "#FFD700");
+      drawDiamond(ctx, W / 2 + 70, boxY + 24, 5, "#FFD700");
+
+      /* Prefix value */
+      ctx.font = "bold 58px Georgia, serif";
       ctx.shadowColor = "#FFD700";
       ctx.shadowBlur = 25;
       ctx.fillStyle = "#FFD700";
-      ctx.fillText("✦  P R E F I X  ✦", W / 2, 85);
+      ctx.fillText(prefix, W / 2, boxY + 88);
       ctx.shadowBlur = 0;
 
-      /* Subtitle line */
+      /* ═══════ FOOTER INFO ═══════ */
+      const footY = H - 60;
+
+      /* Divider */
       ctx.fillStyle = "rgba(255, 215, 0, 0.3)";
-      ctx.fillRect(W / 2 - 200, 105, 400, 1);
+      ctx.fillRect(200, footY - 15, W - 400, 1);
 
-      /* ═══ Avatar (centered, top area) ═══ */
-      await drawAvatar(ctx, avatarBuf, W / 2, 230, 90);
+      /* Footer columns */
+      ctx.font = "13px Georgia, serif";
 
-      /* ═══ User name (below avatar) ═══ */
-      ctx.textAlign = "center";
-      ctx.font = "bold 36px sans-serif";
-      ctx.fillStyle = "#ffffff";
-      ctx.shadowColor = "rgba(255, 215, 0, 0.8)";
-      ctx.shadowBlur = 15;
-      ctx.fillText(`👋 ${userName}`, W / 2, 375);
-      ctx.shadowBlur = 0;
-
-      /* ═══ Divider ═══ */
-      const divGrad = ctx.createLinearGradient(100, 0, W - 100, 0);
-      divGrad.addColorStop(0, "rgba(255, 215, 0, 0)");
-      divGrad.addColorStop(0.5, "rgba(255, 215, 0, 0.6)");
-      divGrad.addColorStop(1, "rgba(255, 215, 0, 0)");
-      ctx.fillStyle = divGrad;
-      ctx.fillRect(100, 410, W - 200, 2);
-
-      /* ═══ Prefix display box ═══ */
-      const boxW = 400;
-      const boxH = 100;
-      const boxX = W / 2 - boxW / 2;
-      const boxY = 445;
-
-      /* Box background (glass effect) */
-      roundRect(ctx, boxX, boxY, boxW, boxH, 20);
-      const boxBg = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
-      boxBg.addColorStop(0, "rgba(255, 215, 0, 0.15)");
-      boxBg.addColorStop(1, "rgba(255, 215, 0, 0.08)");
-      ctx.fillStyle = boxBg;
-      ctx.fill();
-
-      /* Box border */
-      roundRect(ctx, boxX, boxY, boxW, boxH, 20);
-      ctx.strokeStyle = "rgba(255, 215, 0, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      /* "Prefix" label */
-      ctx.fillStyle = "rgba(255, 215, 0, 0.7)";
-      ctx.font = "16px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("⚡ PREFIX ⚡", W / 2, boxY + 30);
-
-      /* Prefix value */
+      /* Left — Bot Name */
+      ctx.textAlign = "left";
+      ctx.fillStyle = "rgba(255, 215, 0, 0.5)";
+      ctx.fillText("BOT", 80, footY + 5);
+      ctx.font = "bold 16px Georgia, serif";
       ctx.fillStyle = "#FFD700";
-      ctx.font = "bold 52px sans-serif";
-      ctx.shadowColor = "#FFD700";
-      ctx.shadowBlur = 20;
-      ctx.fillText(prefix, W / 2, boxY + 80);
-      ctx.shadowBlur = 0;
+      ctx.fillText(botName, 80, footY + 25);
 
-      /* ═══ Bottom branding ═══ */
+      /* Center — Owner */
       ctx.textAlign = "center";
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-      ctx.fillText("💎 NEXUS BOT V1", W / 2, H - 20);
+      ctx.font = "13px Georgia, serif";
+      ctx.fillStyle = "rgba(255, 215, 0, 0.5)";
+      ctx.fillText("OWNER", W / 2, footY + 5);
+      ctx.font = "bold 16px Georgia, serif";
+      ctx.fillStyle = "#ff69b4";
+      ctx.fillText(botOwner, W / 2, footY + 25);
 
-      /* ═══ Corner accents ═══ */
-      ctx.strokeStyle = "rgba(255, 215, 0, 0.8)";
-      ctx.lineWidth = 3;
-      const cSize = 30;
-      const cPos = [
-        [20, 20, 1, 1],
-        [W - 20, 20, -1, 1],
-        [20, H - 20, 1, -1],
-        [W - 20, H - 20, -1, -1]
-      ];
-      for (const [x, y, dx, dy] of cPos) {
-        ctx.beginPath();
-        ctx.moveTo(x, y + dy * cSize);
-        ctx.lineTo(x, y);
-        ctx.lineTo(x + dx * cSize, y);
-        ctx.stroke();
-      }
+      /* Right — Version */
+      ctx.textAlign = "right";
+      ctx.font = "13px Georgia, serif";
+      ctx.fillStyle = "rgba(255, 215, 0, 0.5)";
+      ctx.fillText("COMMANDS", W - 80, footY + 5);
+      ctx.font = "bold 16px Georgia, serif";
+      ctx.fillStyle = "#00ffff";
+      ctx.fillText(`${commandsCount}+`, W - 80, footY + 25);
 
-      /* ═══ Save + send ═══ */
+      /* ═══════ Save + send ═══════ */
       const tmpPath = path.join(os.tmpdir(), `prefix_${Date.now()}.png`);
       await fs.writeFile(tmpPath, canvas.toBuffer("image/png"));
 

@@ -20,6 +20,7 @@
     "btch-downloader": "^6.4.0",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
+    "edge-tts": "^1.0.1",
     "facebook-dl": "^1.0.0",
     "fdown-downloader": "^1.0.0",
     "figlet": "^1.8.0",
