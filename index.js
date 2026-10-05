@@ -16,6 +16,7 @@ const http      = require("http");
 const axios     = require("axios");
 const NodeCache = require("node-cache");
 const login     = require("@dongdev/fca-unofficial");
+const { checkTriggers } = require("./utils/triggers");
 
 /* ---------------------------------------------------------------------------
    1. CONFIG
@@ -547,6 +548,20 @@ async function handleMessage(api, event) {
   console.log(`[DEBUG-MSG] body="${body.slice(0, 50)}" sender=${senderID} thread=${threadID} isGroup=${event.isGroup}`);
 
   if (!threadID || !senderID) return;
+
+
+
+
+  /* ⚡ UNIVERSAL TRIGGERS — handles reply/text/regex from any command */
+  if (body) {
+    try {
+      const handled = await checkTriggers(api, event, db, config, commands, body, senderID);
+      if (handled) return;
+    } catch (e) {
+      errl("[triggers]", e.message);
+    }
+  }
+
 
 
 
@@ -1608,13 +1623,20 @@ function startHttpServer() {
       console.log(`[MQTT-EVENT] type=${event.type} body="${(event.body || "").slice(0, 30)}" sender=${event.senderID} thread=${event.threadID}`);
 
       try {
-        if (event.type === "message" || event.type === "message_reply") {
-          await handleMessage(api, event);
+              if (event.type === "message" || event.type === "message_reply") {
+        await handleMessage(api, event);
 
-        } else if (event.type === "event") {
-          await handleEvent(api, event);
+      } else if (event.type === "event") {
+        await handleEvent(api, event);
 
-        } else if (event.type === "message_reaction") {
+      } else if (event.type === "message_reaction") {
+        /* ⚡ Universal reaction triggers */
+        try {
+          const handled = await checkTriggers(api, event, db, config, commands, event.reaction || "", event.senderID);
+          if (handled) return;
+        } catch (e) {
+          errl("[triggers-react]", e.message);
+        }
           try {
             const reaction = event.reaction || "";
             const messageID = String(event.messageID || "");
