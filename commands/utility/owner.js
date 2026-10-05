@@ -14,13 +14,14 @@ const GIF_NAME = "owner.gif";
 /* ═══ Customize korun ═══ */
 const OWNER_INFO = {
   name: "Ariyan Shihab",
+  nickname: "💮কাঠগোলাপ💮",
   role: "Bot Developer & Owner",
+  age: "21+",
   location: "Bangladesh",
-  facebook: "Ariyan Shihab",
-  telegram: "@AriyanShihab",
-  discord: "ariyan_shihab",
-  whatsapp: "+880 1XXX-XXXXXX",
-  email: "mdshihabhossein777@gmail.com",
+  address: "Dhaka, Bangladesh",
+  religion: "Islam",
+  study: "University student",
+  discord: "shihabxyz1",
   botName: "NEXUS BOT V1"
 };
 
@@ -45,30 +46,30 @@ module.exports = {
     let tmpPath = null;
 
     try {
-      const lines = [];
-      lines.push("╔══════════════════════════╗");
-      lines.push("   👑  OWNER  INFO  👑");
-      lines.push("╚══════════════════════════╝");
-      lines.push("");
-      lines.push(`👤 Name       : ${OWNER_INFO.name}`);
-      lines.push(`🎯 Role       : ${OWNER_INFO.role}`);
-      lines.push(`📍 Location   : ${OWNER_INFO.location}`);
-      lines.push("");
-      lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      lines.push("📞 CONTACT INFO");
-      lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      lines.push("");
-      if (OWNER_INFO.facebook) lines.push(`📘 Facebook  : ${OWNER_INFO.facebook}`);
-      if (OWNER_INFO.telegram) lines.push(`✈️ Telegram   : ${OWNER_INFO.telegram}`);
-      if (OWNER_INFO.discord)  lines.push(`💬 Discord    : ${OWNER_INFO.discord}`);
-      if (OWNER_INFO.whatsapp) lines.push(`📱 WhatsApp   : ${OWNER_INFO.whatsapp}`);
-      if (OWNER_INFO.email)    lines.push(`📧 Email      : ${OWNER_INFO.email}`);
-      lines.push("");
-      lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      lines.push(`💎 ${OWNER_INFO.botName}`);
+    const lines = [];
+lines.push("╔══════════════════════════╗");
+lines.push("   👑  OWNER  INFO  👑");
+lines.push("╚══════════════════════════╝");
+lines.push("");
+lines.push(`👤 Name       : ${OWNER_INFO.name}`);
+lines.push(`🌸 Nickname   : ${OWNER_INFO.nickname}`);
+lines.push(`🎯 Role       : ${OWNER_INFO.role}`);
+lines.push(`🎂 Age        : ${OWNER_INFO.age}`);
+lines.push(`📍 Location   : ${OWNER_INFO.location}`);
+lines.push(`🏠 Address    : ${OWNER_INFO.address}`);
+lines.push(`🕌 Religion   : ${OWNER_INFO.religion}`);
+lines.push(`📚 Study      : ${OWNER_INFO.study}`);
+lines.push("");
+lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
+lines.push("📞 CONTACT INFO");
+lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
+lines.push("");
+if (OWNER_INFO.discord) lines.push(`💬 Discord    : ${OWNER_INFO.discord}`);
+lines.push("");
+lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━");
+lines.push(`💎 ${OWNER_INFO.botName}`);
 
-      const body = lines.join("\n");
-
+const body = lines.join("\n");
       /* Load GIF */
       const gifBuf = await assets.loadAsset(GIF_NAME);
 
