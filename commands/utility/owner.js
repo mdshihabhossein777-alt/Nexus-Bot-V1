@@ -1,26 +1,25 @@
 /**
  * commands/utility/owner.js
- * NEXUS BOT V1 — Owner info with cloud GIF
+ * NEXUS BOT V1 — Owner info with local GIF
  * © 2026
  */
 
 const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
-const cloudStorage = require("../../utils/cloudStorage");
+const assets = require("../../utils/assets");
 
-/* ═══ Cloud GIF name ═══ */
-const GIF_NAME = "owner";
+const GIF_NAME = "owner.gif";
 
-/* ═══ Owner Info — ei gulo customize korun ═══ */
+/* ═══ Customize korun ═══ */
 const OWNER_INFO = {
   name: "Ariyan Shihab",
   role: "Bot Developer & Owner",
   location: "Bangladesh",
   facebook: "Ariyan Shihab",
-  telegram: "@usershihab",
+  telegram: "@AriyanShihab",
   discord: "ariyan_shihab",
-  whatsapp: "01618155xxx",
+  whatsapp: "+880 1XXX-XXXXXX",
   email: "mdshihabhossein777@gmail.com",
   botName: "NEXUS BOT V1"
 };
@@ -28,7 +27,7 @@ const OWNER_INFO = {
 module.exports = {
   name: "owner",
   aliases: ["admin", "dev", "creator"],
-  version: "3.0.0",
+  version: "4.0.0",
   role: 0,
   description: "Show bot owner information",
   usage: "/owner",
@@ -46,7 +45,6 @@ module.exports = {
     let tmpPath = null;
 
     try {
-      /* ═══ Build text — NO LINKS ═══ */
       const lines = [];
       lines.push("╔══════════════════════════╗");
       lines.push("   👑  OWNER  INFO  👑");
@@ -71,21 +69,9 @@ module.exports = {
 
       const body = lines.join("\n");
 
-      /* ═══ Load cloud GIF ═══ */
-      let gifBuf = null;
-      try {
-        const ownerID = String(config.ownerID);
-        gifBuf = await cloudStorage.getCloudFileBuffer(ownerID, GIF_NAME, { maxSize: 20 * 1024 * 1024 });
-        if (gifBuf) {
-          console.log(`[owner] cloud GIF loaded: ${(gifBuf.length / 1024).toFixed(0)} KB`);
-        } else {
-          console.log(`[owner] cloud GIF not found: ${GIF_NAME}`);
-        }
-      } catch (e) {
-        console.log(`[owner] cloud error: ${e.message.slice(0, 60)}`);
-      }
+      /* Load GIF */
+      const gifBuf = await assets.loadAsset(GIF_NAME);
 
-      /* ═══ Send ═══ */
       if (gifBuf) {
         tmpPath = path.join(os.tmpdir(), `owner_${Date.now()}.gif`);
         await fs.writeFile(tmpPath, gifBuf);

@@ -1,23 +1,22 @@
 /**
  * commands/utility/botstats.js
- * NEXUS BOT V1 — System + bot stats + cloud GIF
+ * NEXUS BOT V1 — Bot stats with local GIF
  * © 2026
  */
 
 const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
-const cloudStorage = require("../../utils/cloudStorage");
+const assets = require("../../utils/assets");
 
-/* ═══ Cloud GIF name ═══ */
-const GIF_NAME = "bot";
+const GIF_NAME = "botinfo.gif";
 
 module.exports = {
   name: "botstats",
-  aliases: ["bstats"],
-  version: "2.0.0",
+  aliases: ["bstats", "botinfo"],
+  version: "3.0.0",
   role: 0,
-  description: "System + bot stats",
+  description: "System + bot stats with GIF",
   usage: "/botstats",
   category: "utility",
 
@@ -33,7 +32,6 @@ module.exports = {
     let tmpPath = null;
 
     try {
-      /* ═══ Calculate stats ═══ */
       const up = Date.now() - ((global.NEXUS && global.NEXUS.START_TIME) || Date.now());
       const d = Math.floor(up / 86400000);
       const h = Math.floor(up / 3600000) % 24;
@@ -41,7 +39,6 @@ module.exports = {
 
       const mem = process.memoryUsage();
 
-      /* ═══ Build text — NO LINKS ═══ */
       const body =
         `📊 BOT STATS\n` +
         `────────────\n` +
@@ -55,21 +52,9 @@ module.exports = {
         `👥 Groups     : ${(global.NEXUS && global.NEXUS.groupsDB) ? Object.keys(global.NEXUS.groupsDB).length : 0}\n` +
         `👤 Users      : ${(global.NEXUS && global.NEXUS.usersDB) ? Object.keys(global.NEXUS.usersDB).length : 0}`;
 
-      /* ═══ Load cloud GIF ═══ */
-      let gifBuf = null;
-      try {
-        const ownerID = String(config.ownerID);
-        gifBuf = await cloudStorage.getCloudFileBuffer(ownerID, GIF_NAME, { maxSize: 20 * 1024 * 1024 });
-        if (gifBuf) {
-          console.log(`[botstats] cloud GIF loaded: ${(gifBuf.length / 1024).toFixed(0)} KB`);
-        } else {
-          console.log(`[botstats] cloud GIF not found: ${GIF_NAME}`);
-        }
-      } catch (e) {
-        console.log(`[botstats] cloud error: ${e.message.slice(0, 60)}`);
-      }
+      /* Load GIF */
+      const gifBuf = await assets.loadAsset(GIF_NAME);
 
-      /* ═══ Send ═══ */
       if (gifBuf) {
         tmpPath = path.join(os.tmpdir(), `botstats_${Date.now()}.gif`);
         await fs.writeFile(tmpPath, gifBuf);
@@ -90,7 +75,7 @@ module.exports = {
       console.error("[botstats] error:", e.message);
       if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
       react("❌");
-      api.sendMessage("❌ " + e.message.slice(0, 60), threadID);
+      api.sendMessage(`❌ ${e.message.slice(0, 60)}`, threadID);
     }
   }
 };

@@ -1,23 +1,22 @@
 /**
  * commands/utility/uptime.js
- * NEXUS BOT V1 — Uptime with cloud GIF
+ * NEXUS BOT V1 — Uptime with local GIF
  * © 2026
  */
 
 const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
-const cloudStorage = require("../../utils/cloudStorage");
+const assets = require("../../utils/assets");
 
-/* ═══ Cloud GIF name ═══ */
-const GIF_NAME = "upt";
+const GIF_NAME = "upt.gif";
 
 module.exports = {
   name: "uptime",
   aliases: ["runtime", "upt", "up"],
-  version: "4.0.0",
+  version: "5.0.0",
   role: 0,
-  description: "Show bot uptime with fake PC specs + cloud GIF",
+  description: "Show bot uptime with fake specs + GIF",
   usage: "/uptime  or  /upt",
   category: "utility",
 
@@ -34,7 +33,7 @@ module.exports = {
     let tmpPath = null;
 
     try {
-      /* ═══ Uptime calculate ═══ */
+      /* Uptime calculate */
       const start = (global.NEXUS && global.NEXUS.START_TIME) || Date.now();
       const s = Math.floor((Date.now() - start) / 1000);
 
@@ -50,7 +49,6 @@ module.exports = {
       parts.push(`${sec}s`);
       const uptimeStr = parts.join(" ");
 
-      /* ═══ Fake PC specs message ═══ */
       const body =
         `⚡ SYSTEM INFO ⚡\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -68,21 +66,9 @@ module.exports = {
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `🚀 NEXUS BOT V1`;
 
-      /* ═══ Load cloud GIF ═══ */
-      let gifBuf = null;
-      try {
-        const ownerID = String(config.ownerID);
-        gifBuf = await cloudStorage.getCloudFileBuffer(ownerID, GIF_NAME, { maxSize: 20 * 1024 * 1024 });
-        if (gifBuf) {
-          console.log(`[upt] cloud GIF loaded: ${(gifBuf.length / 1024).toFixed(0)} KB`);
-        } else {
-          console.log(`[upt] cloud GIF not found: ${GIF_NAME}`);
-        }
-      } catch (e) {
-        console.log(`[upt] cloud error: ${e.message.slice(0, 60)}`);
-      }
+      /* Load GIF */
+      const gifBuf = await assets.loadAsset(GIF_NAME);
 
-      /* ═══ Send ═══ */
       if (gifBuf) {
         tmpPath = path.join(os.tmpdir(), `upt_${Date.now()}.gif`);
         await fs.writeFile(tmpPath, gifBuf);
@@ -94,7 +80,6 @@ module.exports = {
           try { fs.unlinkSync(tmpPath); } catch (_) {}
         });
       } else {
-        /* Text only fallback */
         api.sendMessage(body, threadID);
       }
 
