@@ -1,14 +1,15 @@
-// utils/songStore.js - NEXUS V1 - Song search memory
-const searches = new Map();
+// utils/songStore.js
+const store = new Map();
 
-/* Auto-cleanup 5 min */
+// Auto cleanup every 10 min
 setInterval(() => {
   const now = Date.now();
-  for (const [k, v] of searches) {
-    if (now - v.time > 5 * 60 * 1000) {
-      searches.delete(k);
+  const FIVE_MIN = 5 * 60 * 1000;
+  for (const [key, value] of store.entries()) {
+    if (value && value.time && (now - value.time) > FIVE_MIN) {
+      store.delete(key);
     }
   }
-}, 60 * 1000);
+}, 10 * 60 * 1000);
 
-module.exports = searches;
+module.exports = store;

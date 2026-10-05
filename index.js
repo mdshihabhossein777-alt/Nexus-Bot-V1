@@ -391,7 +391,7 @@ function wrapSendMessage(api) {
         let cb = null;
         if (typeof rest[rest.length - 1] === "function") cb = rest.pop();
         try {
-                    original(payload, threadID, ...rest, (err, info) => {
+          original(payload, threadID, ...rest, (err, info) => {
             if (err) warn("sendMessage error:", err.message || err);
 
             /* ⚡ Track bot's sent message IDs for angry-delete */
@@ -506,6 +506,38 @@ function isSpamming(userID, limit = 5, windowMs = 5000) {
   arr.push(now);
   spamTracker.set(userID, arr);
   return arr.length > limit;
+}
+
+/* ---------------------------------------------------------------------------
+   9b. BTCH AUDIO URL HELPER  (NEW — for song download fallback)
+   --------------------------------------------------------------------------- */
+function findBtchAudioUrl(data) {
+  if (!data || typeof data !== "object") return null;
+
+  const keys = ["mp3", "audio", "url", "download_url", "downloadUrl", "link", "audioUrl"];
+  for (const k of keys) {
+    const v = data[k];
+    if (typeof v === "string" && /^https?:\/\//.test(v)) return v;
+  }
+
+  if (data.result) { const r = findBtchAudioUrl(data.result); if (r) return r; }
+  if (data.data)   { const r = findBtchAudioUrl(data.data);   if (r) return r; }
+
+  if (Array.isArray(data)) {
+    for (const item of data) { const r = findBtchAudioUrl(item); if (r) return r; }
+  }
+
+  if (Array.isArray(data.medias)) {
+    const audio = data.medias.find(
+      (m) => m.type === "audio" || m.ext === "m4a" || m.ext === "mp3" || m.vcodec === "none"
+    );
+    if (audio) {
+      const u = audio.url || audio.download_url;
+      if (typeof u === "string" && /^https?:\/\//.test(u)) return u;
+    }
+  }
+
+  return null;
 }
 
 /* ---------------------------------------------------------------------------
@@ -636,7 +668,8 @@ async function handleMessage(api, event) {
               if (ui && ui[uid] && ui[uid].name) targetName = ui[uid].name;
               if (ui && ui[senderID] && ui[senderID].name) senderName = ui[senderID].name;
             } catch (_) {}
-                        let replyText;
+
+            let replyText;
             if (info.customReply && info.customReply.trim()) {
               replyText = info.customReply
                 .replace(/{name}/g, targetName)
@@ -654,16 +687,19 @@ async function handleMessage(api, event) {
             }
 
             api.sendMessage(replyText, threadID);
-            break;
-            api.sendMessage(replyText, threadID);
-            break;
+            break; /* ⚡ FIX: duplicate line removed */
           }
         }
       }
     } catch (_) {}
   }
 
-  /* SONG SELECTION */
+  /* ═══════════════════════════════════════════════════════════════════════
+     SONG SELECTION — Enhanced with 3-stage fallback
+       1) yt-dlp (full song, needs ffmpeg on Render)
+       2) btch-downloader (full song via API, no ffmpeg needed)  ← NEW
+       3) iTunes 30s preview (last resort)
+     ═══════════════════════════════════════════════════════════════════════ */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
@@ -684,12 +720,12 @@ async function handleMessage(api, event) {
           }
           try { api.unsendMessage(event.messageReply.messageID, () => {}); } catch (_) {}
 
+          let finalPath = null;
           let tmpPath = null;
-          try {
-            console.log(`[song] downloading: ${song.title}`);
-            console.log(`[song] videoId: ${song.videoId}`);
-            console.log(`[song] cookies env: ${process.env.YT_COOKIES_B64 ? "yes" : "no"}`);
 
+          /* ═══ METHOD 1: yt-dlp ═══ */
+          try {
+            console.log(`[song] METHOD 1: yt-dlp → ${song.title}`);
             const { YtDlp } = require("ytdlp-nodejs");
             const ytdlp = new YtDlp();
 
@@ -744,7 +780,6 @@ async function handleMessage(api, event) {
 
             const result = await ytdlp.downloadAudio(url, "mp3", ytdlpOpts);
 
-            let finalPath = null;
             if (result && result.filePaths && result.filePaths.length) {
               finalPath = result.filePaths[0];
             } else if (fs.existsSync(tmpPath)) {
@@ -756,63 +791,150 @@ async function handleMessage(api, event) {
               if (files.length) finalPath = path.join(dir, files[0]);
             }
 
-            if (!finalPath || !fs.existsSync(finalPath)) {
-              throw new Error("Audio file not created");
+            if (finalPath && fs.existsSync(finalPath)) {
+              const stat = fs.statSync(finalPath);
+              console.log(`[song] yt-dlp downloaded: ${stat.size} bytes`);
+              if (stat.size < 50000) {
+                try { fs.unlinkSync(finalPath); } catch (_) {}
+                finalPath = null;
+              }
+            } else {
+              finalPath = null;
             }
+          } catch (e) {
+            console.log(`[song] METHOD 1 failed: ${e.message}`);
+            finalPath = null;
+          }
 
-            const stat = await fs.stat(finalPath);
-            console.log(`[song] downloaded: ${stat.size} bytes`);
-            if (stat.size < 50000) throw new Error("File too small");
+          /* ═══ METHOD 2: btch-downloader ═══ */
+          if (!finalPath) {
+            try {
+              console.log(`[song] METHOD 2: btch-downloader → ${song.title}`);
+              const btch = require("btch-downloader");
+              const ytUrl = `https://www.youtube.com/watch?v=${song.videoId}`;
 
+              let audioUrl = null;
+              const fn = btch.youtube || btch.ytmp3 || btch.yt || btch.y2mate;
+
+              if (typeof fn === "function") {
+                const data = await fn(ytUrl);
+                audioUrl = findBtchAudioUrl(data);
+              }
+
+              /* Fallback: try other btch functions if youtube/ytmp3 didn't work */
+              if (!audioUrl) {
+                for (const fnName of Object.keys(btch)) {
+                  if (typeof btch[fnName] !== "function") continue;
+                  if (["youtube", "ytmp3", "yt", "y2mate"].includes(fnName)) continue;
+                  try {
+                    const data = await btch[fnName](ytUrl);
+                    audioUrl = findBtchAudioUrl(data);
+                    if (audioUrl) {
+                      console.log(`[song] btch.${fnName} returned audio URL`);
+                      break;
+                    }
+                  } catch (_) {}
+                }
+              }
+
+              if (audioUrl) {
+                const p = path.join(os.tmpdir(), `nexus_song_btch_${Date.now()}.mp3`);
+                const res = await axios.get(audioUrl, {
+                  responseType: "stream",
+                  timeout: 120000,
+                  maxContentLength: 100 * 1024 * 1024,
+                  headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "*/*"
+                  }
+                });
+
+                await new Promise((resolve, reject) => {
+                  const w = fs.createWriteStream(p);
+                  res.data.pipe(w);
+                  res.data.on("error", reject);
+                  w.on("error", reject);
+                  w.on("finish", resolve);
+                });
+
+                const stat = fs.statSync(p);
+                if (stat.size >= 50000) {
+                  finalPath = p;
+                  console.log(`[song] ✅ btch-downloader: ${stat.size} bytes`);
+                } else {
+                  try { fs.unlinkSync(p); } catch (_) {}
+                  console.log(`[song] btch file too small (${stat.size} bytes)`);
+                }
+              } else {
+                console.log(`[song] btch-downloader: no audio URL in response`);
+              }
+            } catch (e) {
+              console.log(`[song] METHOD 2 failed: ${e.message}`);
+            }
+          }
+
+          /* ═══ Send if we have a file (Methods 1 or 2 succeeded) ═══ */
+          if (finalPath && fs.existsSync(finalPath)) {
             api.sendMessage({
               body: "",
               attachment: fs.createReadStream(finalPath)
             }, threadID, (err) => {
               if (!err && event.messageID) {
                 try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
+              } else if (err) {
+                console.log(`[song] send failed: ${err.message}`);
               }
               try { fs.unlinkSync(finalPath); } catch (_) {}
-              if (finalPath !== tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
-            });
-
-          } catch (e) {
-            console.error("[song] yt-dlp failed:", e.message);
-            if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
-
-            try {
-              const itunes = await axios.get("https://itunes.apple.com/search", {
-                params: { term: song.title, media: "music", limit: 1 },
-                timeout: 15000
-              });
-              const preview = itunes.data?.results?.[0]?.previewUrl;
-
-              if (preview) {
-                const a = await axios.get(preview, {
-                  responseType: "arraybuffer",
-                  timeout: 30000,
-                  headers: { "User-Agent": "Mozilla/5.0" }
-                });
-                const buf = Buffer.from(a.data);
-                const p = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
-                await fs.writeFile(p, buf);
-
-                api.sendMessage({
-                  body: "",
-                  attachment: fs.createReadStream(p)
-                }, threadID, () => {
-                  try { fs.unlinkSync(p); } catch (_) {}
-                  if (event.messageID) {
-                    try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
-                  }
-                });
-                return;
+              if (tmpPath && tmpPath !== finalPath) {
+                try { fs.unlinkSync(tmpPath); } catch (_) {}
               }
-            } catch (_) {}
-
-            if (event.messageID) {
-              try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
-            }
+            });
+            return;
           }
+
+          /* ═══ METHOD 3: iTunes preview (last resort) ═══ */
+          try {
+            console.log(`[song] METHOD 3: iTunes preview → ${song.title}`);
+            const itunes = await axios.get("https://itunes.apple.com/search", {
+              params: { term: song.title, media: "music", limit: 1 },
+              timeout: 15000
+            });
+            const preview = itunes.data?.results?.[0]?.previewUrl;
+
+            if (preview) {
+              const a = await axios.get(preview, {
+                responseType: "arraybuffer",
+                timeout: 30000,
+                headers: { "User-Agent": "Mozilla/5.0" }
+              });
+              const buf = Buffer.from(a.data);
+              const p = path.join(os.tmpdir(), `nexus_song_itunes_${Date.now()}.mp3`);
+              await fs.writeFile(p, buf);
+
+              api.sendMessage({
+                body: "⚠️ Full song paoa jay ni — iTunes preview (30s) pathacchi.",
+                attachment: fs.createReadStream(p)
+              }, threadID, () => {
+                try { fs.unlinkSync(p); } catch (_) {}
+                if (event.messageID) {
+                  try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
+                }
+              });
+              return;
+            }
+          } catch (e) {
+            console.log(`[song] METHOD 3 failed: ${e.message}`);
+          }
+
+          /* All 3 methods failed */
+          if (event.messageID) {
+            try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
+          }
+          api.sendMessage(
+            "❌ Song download failed in all 3 methods.\n" +
+            "💡 YouTube may be blocking this server. Try another song.",
+            threadID
+          );
           return;
         } else {
           api.sendMessage(`⚠️ Number dao 1-${search.results.length} er moddhe.`, threadID);
@@ -1350,7 +1472,7 @@ function startHttpServer() {
       botNickConfig, loadBotNickConfig, buildFinalNickname
     };
 
-        /* ⚡ DEBUG: log MQTT setup */
+    /* ⚡ DEBUG: log MQTT setup */
     console.log("[MQTT] listenMqtt starting...");
 
     api.listenMqtt(async (err, event) => {

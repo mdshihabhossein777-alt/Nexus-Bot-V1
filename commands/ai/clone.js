@@ -1,6 +1,6 @@
 /**
  * commands/ai/clone.js
- * NEXUS BOT V1 — Voice clone using Hugging Face API
+ * NEXUS BOT V1 — Voice clone (multi-source)
  * © 2026
  */
 
@@ -8,38 +8,38 @@ const axios = require("axios");
 const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
+const FormData = require("form-data");
 
 module.exports = {
   name: "clone",
   aliases: ["voiceclone", "vc"],
-  version: "1.0.0",
+  version: "2.0.0",
   role: 0,
-  description: "Clone voice from audio reply and speak text",
-  usage: "/clone <text>  (reply to a voice note)",
+  description: "Clone voice from audio and speak text",
+  usage: "/clone <text>  (reply to voice note)",
   category: "ai",
 
   execute: async function (api, event, args, db, config) {
-    const { threadID, messageID, messageReply } = event;
+    const { threadID, messageID, messageReply, senderID } = event;
 
     const react = (e) => {
       if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ═══ Check HF token ═══ */
     const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN;
 
+    /* ═══ Check token ═══ */
     if (!HF_TOKEN) {
       react("⚠️");
       return api.sendMessage(
-        `⚠️ Voice clone disabled\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🔑 HuggingFace token required\n\n` +
-        `📝 Setup:\n` +
-        `1. Go to huggingface.co/settings/tokens\n` +
-        `2. Create free read token\n` +
-        `3. Add to Render env var:\n` +
-        `   HF_TOKEN=hf_xxxxx\n\n` +
-        `💡 Then restart bot`,
+        "⚠️ Voice clone disabled\n" +
+        "━━━━━━━━━━━━━━━━━━━━\n" +
+        "🔑 HuggingFace token required\n\n" +
+        "📝 Setup:\n" +
+        "1. https://huggingface.co/settings/tokens\n" +
+        "2. Create free 'Read' token\n" +
+        "3. Render env: HF_TOKEN=hf_xxxxx\n" +
+        "4. Restart bot",
         threadID
       );
     }
@@ -48,11 +48,10 @@ module.exports = {
     if (!messageReply || !messageReply.attachments || !messageReply.attachments.length) {
       react("❓");
       return api.sendMessage(
-        `📝 Usage:\n` +
-        `1. Send a voice note to bot\n` +
-        `2. Reply to that voice note\n` +
-        `3. Send: /clone <text to speak>\n\n` +
-        `💡 Bot will clone the voice and speak your text`,
+        "📝 Usage:\n" +
+        "1. Send a voice note (5-15 sec)\n" +
+        "2. Reply to it\n" +
+        "3. Send: /clone <text to say>",
         threadID
       );
     }
@@ -60,24 +59,21 @@ module.exports = {
     const text = args.join(" ").trim();
     if (!text) {
       react("❓");
-      return api.sendMessage("❌ Provide text: /clone Hello World", threadID);
+      return api.sendMessage("❌ Provide text: /clone Hello world", threadID);
     }
 
-    if (text.length > 250) {
-      return api.sendMessage("❌ Text too long (max 250 chars)", threadID);
-    }
+    if (text.length > 200) text = text.slice(0, 200);
+    text = text.trim();
 
-    /* ═══ Find audio attachment ═══ */
     const audio = messageReply.attachments.find((a) =>
-      a.type === "audio" ||
-      a.type === "voice" ||
+      a.type === "audio" || a.type === "voice" ||
       (a.url && /\.(mp3|wav|m4a|ogg|opus)/i.test(a.url)) ||
       (a.mimeType && a.mimeType.startsWith("audio"))
     );
 
     if (!audio || !audio.url) {
       react("❌");
-      return api.sendMessage("❌ No audio found in reply", threadID);
+      return api.sendMessage("❌ No voice note in reply", threadID);
     }
 
     react("⏳");
@@ -87,8 +83,7 @@ module.exports = {
 
     try {
       /* ═══ Download voice sample ═══ */
-      console.log(`[clone] downloading sample: ${audio.url.slice(0, 60)}`);
-
+      console.log(`[clone] downloading sample...`);
       const dl = await axios.get(audio.url, {
         responseType: "arraybuffer",
         timeout: 30000,
@@ -101,42 +96,18 @@ module.exports = {
 
       samplePath = path.join(os.tmpdir(), `clone_sample_${Date.now()}.wav`);
       await fs.writeFile(samplePath, sampleBuf);
-
       console.log(`[clone] sample: ${(sampleBuf.length / 1024).toFixed(1)} KB`);
 
-      /* ═══ Call Hugging Face XTTS API ═══ */
-      const modelUrl = "https://api-inference.huggingface.co/models/coqui/XTTS-v2";
+      /* ═══ Try multi-source voice clone ═══ */
+      const result = await runVoiceClone(samplePath, text, HF_TOKEN);
 
-      /* Prepare multipart form data */
-      const FormData = require("form-data");
-      const form = new FormData();
-      form.append("data", fs.createReadStream(samplePath));
-      form.append("text", text);
-      form.append("language", "en");
-
-      console.log(`[clone] sending to HF...`);
-
-      const response = await axios.post(modelUrl, form, {
-        headers: {
-          ...form.getHeaders(),
-          "Authorization": `Bearer ${HF_TOKEN}`
-        },
-        responseType: "arraybuffer",
-        timeout: 120000,
-        maxContentLength: 30 * 1024 * 1024
-      });
-
-      const audioBuf = Buffer.from(response.data);
-      if (audioBuf.length < 1000) throw new Error("HF returned empty audio");
-
-      console.log(`[clone] result: ${(audioBuf.length / 1024).toFixed(1)} KB`);
-
-      outputPath = path.join(os.tmpdir(), `clone_output_${Date.now()}.mp3`);
-      await fs.writeFile(outputPath, audioBuf);
+      /* ═══ Save + send ═══ */
+      outputPath = path.join(os.tmpdir(), `clone_out_${Date.now()}.mp3`);
+      await fs.writeFile(outputPath, result.buffer);
 
       react("🎭");
       api.sendMessage({
-        body: `🎭 Voice cloned!\n📝 Text: "${text.slice(0, 100)}"`,
+        body: `🎭 Voice cloned via ${result.provider}\n📝 "${text.slice(0, 100)}"`,
         attachment: fs.createReadStream(outputPath)
       }, threadID, () => {
         try { fs.unlinkSync(outputPath); } catch (_) {}
@@ -144,23 +115,156 @@ module.exports = {
 
     } catch (e) {
       console.error("[clone] error:", e.message);
-
-      let errLine = "clone failed";
-      if (e.response?.status === 401) errLine = "invalid HF token";
-      else if (e.response?.status === 503) errLine = "HF model loading, try again in 30s";
-      else if (e.response?.status === 429) errLine = "rate limit, wait 1 min";
-      else if (e.message.includes("timeout")) errLine = "timeout — try shorter text";
-      else if (e.message.includes("too small")) errLine = "voice sample too small";
-      else errLine = e.message.slice(0, 60);
-
       react("❌");
-      api.sendMessage(`❌ ${errLine}`, threadID);
-
+      api.sendMessage(`❌ ${e.message.slice(0, 100)}`, threadID);
     } finally {
       if (samplePath) { try { fs.unlinkSync(samplePath); } catch (_) {} }
-      if (outputPath) { try { fs.unlinkSync(outputPath); } catch (_) {} }
     }
   }
 };
+
+/* ═══════════════════════════════════════════════════
+   MULTI-SOURCE VOICE CLONE
+   ═══════════════════════════════════════════════════ */
+async function runVoiceClone(samplePath, text, hfToken) {
+  const providers = [
+    { name: "HF-XTTS", fn: () => tryHFXTTS(samplePath, text, hfToken) },
+    { name: "HF-SpeechT5", fn: () => tryHFSpeechT5(samplePath, text, hfToken) },
+    { name: "Replicate", fn: () => tryReplicate(samplePath, text) }
+  ];
+
+  let lastErr = null;
+
+  for (const p of providers) {
+    try {
+      console.log(`[clone] trying: ${p.name}`);
+      const buffer = await p.fn();
+      console.log(`[clone] ✅ ${p.name} success`);
+      return { buffer, provider: p.name };
+    } catch (e) {
+      console.log(`[clone] ❌ ${p.name}: ${e.message.slice(0, 80)}`);
+      lastErr = e;
+      continue;
+    }
+  }
+
+  throw new Error("All voice clone providers failed: " + (lastErr?.message || ""));
+}
+
+/* ═══ Provider 1 — HF Inference API (new endpoint) ═══ */
+async function tryHFXTTS(samplePath, text, token) {
+  const audioB64 = fs.readFileSync(samplePath).toString("base64");
+
+  /* New HF endpoint */
+  const endpoints = [
+    "https://api-inference.huggingface.co/models/coqui/XTTS-v2",
+    "https://router.huggingface.co/hf-inference/models/coqui/XTTS-v2",
+    "https://api-inference.huggingface.co/models/facebook/mms-tts-eng"
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const r = await axios.post(url, {
+        inputs: text,
+        parameters: {
+          speaker_embedding: audioB64
+        }
+      }, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        responseType: "arraybuffer",
+        timeout: 120000,
+        maxContentLength: 30 * 1024 * 1024
+      });
+
+      const buf = Buffer.from(r.data);
+      if (buf.length < 1000) continue;
+
+      /* Verify audio magic bytes */
+      const head = buf.slice(0, 4).toString();
+      if (!head.includes("RIFF") && !head.includes("ID3") && !head.includes("ftyp") && !head.includes("OggS")) {
+        /* Maybe error JSON */
+        continue;
+      }
+
+      return buf;
+    } catch (e) {
+      continue;
+    }
+  }
+
+  throw new Error("HF XTTS failed");
+}
+
+/* ═══ Provider 2 — HF SpeechT5 ═══ */
+async function tryHFSpeechT5(samplePath, text, token) {
+  const url = "https://api-inference.huggingface.co/models/microsoft/speecht5_tts";
+
+  const r = await axios.post(url, {
+    inputs: text
+  }, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    responseType: "arraybuffer",
+    timeout: 120000
+  });
+
+  const buf = Buffer.from(r.data);
+  if (buf.length < 1000) throw new Error("empty audio");
+  return buf;
+}
+
+/* ═══ Provider 3 — Replicate (free trial) ═══ */
+async function tryReplicate(samplePath, text) {
+  const REPLICATE_TOKEN = process.env.REPLICATE_API_TOKEN;
+  if (!REPLICATE_TOKEN) throw new Error("no replicate token");
+
+  /* Upload sample */
+  const audioB64 = fs.readFileSync(samplePath).toString("base64");
+  const dataUri = `data:audio/wav;base64,${audioB64}`;
+
+  /* Create prediction */
+  const createR = await axios.post("https://api.replicate.com/v1/predictions", {
+    version: "68488c97ed32b9273ba0ce4cdfb3bda9f8c9e034fdb1c0a078e9b3d73a8b4e86",
+    input: {
+      text: text,
+      speaker: dataUri,
+      language: "en"
+    }
+  }, {
+    headers: {
+      "Authorization": `Token ${REPLICATE_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    timeout: 30000
+  });
+
+  const predId = createR.data?.id;
+  if (!predId) throw new Error("replicate create failed");
+
+  /* Poll for result */
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const check = await axios.get(`https://api.replicate.com/v1/predictions/${predId}`, {
+      headers: { "Authorization": `Token ${REPLICATE_TOKEN}` },
+      timeout: 15000
+    });
+
+    const status = check.data?.status;
+    if (status === "succeeded" && check.data.output) {
+      const audioUrl = Array.isArray(check.data.output) ? check.data.output[0] : check.data.output;
+      const dl = await axios.get(audioUrl, { responseType: "arraybuffer", timeout: 60000 });
+      return Buffer.from(dl.data);
+    }
+    if (status === "failed") throw new Error("replicate prediction failed");
+  }
+
+  throw new Error("replicate timeout");
+}
 
 // © 2026 NEXUS BOT V1
