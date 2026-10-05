@@ -12,6 +12,7 @@
   "dependencies": {
     "@denzy-official/youtube_scraper": "^1.0.1",
     "@dongdev/fca-unofficial": "^4.0.3",
+    "@gradio/client": "^2.7.1",
     "@heyputer/puter.js": "^2.6.3",
     "@napi-rs/canvas": "^1.0.9",
     "@raihan07/vidly": "^13.0.2",
