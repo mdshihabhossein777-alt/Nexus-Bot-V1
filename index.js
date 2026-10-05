@@ -548,6 +548,24 @@ async function handleMessage(api, event) {
 
   if (!threadID || !senderID) return;
 
+
+
+  /* ⚡ SCREENSHOT REPLY HOOK — reply to URL with "Xsc" or "sc" or "screenshot" */
+  if (event.messageReply && body && /^(xsc|sc|ss|screenshot|snap|webshot)$/i.test(body.trim())) {
+    try {
+      console.log(`[sc-hook] triggered: "${body}"`);
+      const scCmd = commands.get("screenshot");
+      if (scCmd && typeof scCmd.execute === "function") {
+        await scCmd.execute(api, event, [], db, config, { prefix: config.prefix, commands });
+        return;
+      }
+    } catch (e) {
+      errl("[sc-hook] error:", e.message);
+    }
+  }
+
+
+
   /* ⚡ CLOUD SAVE HOOK — "S" or "S <name>" (owner only) */
   if (event.messageReply && body && /^S(\s|$)/i.test(body.trim())) {
     try {
