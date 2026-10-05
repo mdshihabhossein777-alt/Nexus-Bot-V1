@@ -345,14 +345,11 @@ const FORBIDDEN_COMMANDS = new Set([
 
 
 /* ⚡ Bot message tracker for angry-delete system */
-const BOT_MESSAGES = new Map(); /* messageID → { threadID, timestamp } */
-
-/* ⚡ Angry emojis that trigger auto-unsend */
+const BOT_MESSAGES = new Map();
 const ANGRY_EMOJIS = ["😡", "🤬", "😠", "💢", "👿", "😾", "🖕", "👎", "🤮", "💩"];
 
-/* ⚡ Cleanup old entries every 5 min */
 setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000; /* 30 min */
+  const cutoff = Date.now() - 30 * 60 * 1000;
   for (const [id, data] of BOT_MESSAGES) {
     if (data.timestamp < cutoff) BOT_MESSAGES.delete(id);
   }
@@ -394,7 +391,6 @@ function wrapSendMessage(api) {
           original(payload, threadID, ...rest, (err, info) => {
             if (err) warn("sendMessage error:", err.message || err);
 
-            /* ⚡ Track bot's sent message IDs for angry-delete */
             if (!err && info && info.messageID) {
               BOT_MESSAGES.set(String(info.messageID), {
                 threadID: String(threadID),
@@ -509,7 +505,7 @@ function isSpamming(userID, limit = 5, windowMs = 5000) {
 }
 
 /* ---------------------------------------------------------------------------
-   9b. BTCH AUDIO URL HELPER  (NEW — for song download fallback)
+   9b. BTCH AUDIO URL HELPER
    --------------------------------------------------------------------------- */
 function findBtchAudioUrl(data) {
   if (!data || typeof data !== "object") return null;
@@ -548,12 +544,9 @@ async function handleMessage(api, event) {
   const senderID = String(event.senderID);
   const body     = (event.body || "").trim();
 
-  /* ⚡ DEBUG LOG */
   console.log(`[DEBUG-MSG] body="${body.slice(0, 50)}" sender=${senderID} thread=${threadID} isGroup=${event.isGroup}`);
 
   if (!threadID || !senderID) return;
-
-
 
   /* ⚡ CLOUD SAVE HOOK — "S" or "S <name>" (owner only) */
   if (event.messageReply && body && /^S(\s|$)/i.test(body.trim())) {
@@ -573,8 +566,6 @@ async function handleMessage(api, event) {
     }
   }
 
-
-
   /* ⚡ BLACKLIST CHECK — block blacklisted users */
   try {
     const BL_FILE = path.join(DATA_DIR, "blacklist.json");
@@ -582,11 +573,10 @@ async function handleMessage(api, event) {
       const bl = fs.readJsonSync(BL_FILE) || {};
       if (bl[String(senderID)]) {
         console.log(`[blacklist] blocked: ${senderID}`);
-        return; /* Silent block — bot ignore kore */
+        return;
       }
     }
   } catch (_) {}
-
 
   /* ⚡ PREFIX INFO HOOK */
   if (body) {
@@ -613,14 +603,12 @@ async function handleMessage(api, event) {
         let shouldTrigger = false;
         let userArgs = [];
 
-        /* ✅ 1. Owner/admin writes "bot" or "bot <text>" */
         if (senderIsOwnerOrAdmin && /^bot(\s|$)/i.test(body)) {
           shouldTrigger = true;
           const stripped = body.replace(/^bot\s*/i, "").trim();
           userArgs = stripped ? stripped.split(/\s+/) : ["hi"];
         }
 
-        /* ✅ 2. Reply to bot's message — anyone */
         if (
           !shouldTrigger &&
           event.messageReply &&
@@ -632,7 +620,6 @@ async function handleMessage(api, event) {
           userArgs = [body];
         }
 
-        /* ✅ 3. @mention bot — anyone */
         if (!shouldTrigger && event.mentions && typeof event.mentions === "object") {
           const botUID = String(api.getCurrentUserID());
           if (Object.keys(event.mentions).includes(botUID)) {
@@ -643,12 +630,10 @@ async function handleMessage(api, event) {
         }
 
         if (shouldTrigger) {
-          /* ⚡ Force reply-to user's message */
           const _origSend = api.sendMessage.bind(api);
           const replyToID = String(event.messageID);
 
           api.sendMessage = function (message, tID, ...rest) {
-            /* Insert replyToID as 3rd arg — wrapped sender will put callback after */
             return _origSend(message, tID, replyToID, ...rest);
           };
 
@@ -658,7 +643,6 @@ async function handleMessage(api, event) {
               commands
             });
           } finally {
-            /* Always restore original sendMessage */
             api.sendMessage = _origSend;
           }
           return;
@@ -668,7 +652,7 @@ async function handleMessage(api, event) {
       errl("[bot-hook] error:", e.message);
     }
   }
-  
+
   const isGroup  = !!event.isGroup;
   const isOwner  = isOwnerOrAdmin(senderID);
   const group    = isGroup ? await getGroup(threadID) : null;
@@ -722,13 +706,12 @@ async function handleMessage(api, event) {
             }
 
             api.sendMessage(replyText, threadID);
-            break; /* ⚡ FIX: duplicate line removed */
+            break;
           }
         }
       }
     } catch (_) {}
   }
- 
 
   /* ═══ VIDEO DOWNLOADER REPLY HANDLER (/vd search) ═══ */
   if (event.messageReply && body) {
@@ -745,15 +728,7 @@ async function handleMessage(api, event) {
     }
   }
 
-
-
-
-  /* ═══════════════════════════════════════════════════════════════════════
-     SONG SELECTION — Enhanced with 3-stage fallback
-       1) yt-dlp (full song, needs ffmpeg on Render)
-       2) btch-downloader (full song via API, no ffmpeg needed)  ← NEW
-       3) iTunes 30s preview (last resort)
-     ═══════════════════════════════════════════════════════════════════════ */
+  /* ═══ SONG SELECTION — 3-stage fallback ═══ */
   if (event.messageReply && body) {
     try {
       const songSearches = require("./utils/songStore");
@@ -777,7 +752,7 @@ async function handleMessage(api, event) {
           let finalPath = null;
           let tmpPath = null;
 
-          /* ═══ METHOD 1: yt-dlp ═══ */
+          /* METHOD 1: yt-dlp */
           try {
             console.log(`[song] METHOD 1: yt-dlp → ${song.title}`);
             const { YtDlp } = require("ytdlp-nodejs");
@@ -860,7 +835,7 @@ async function handleMessage(api, event) {
             finalPath = null;
           }
 
-          /* ═══ METHOD 2: btch-downloader ═══ */
+          /* METHOD 2: btch-downloader */
           if (!finalPath) {
             try {
               console.log(`[song] METHOD 2: btch-downloader → ${song.title}`);
@@ -875,7 +850,6 @@ async function handleMessage(api, event) {
                 audioUrl = findBtchAudioUrl(data);
               }
 
-              /* Fallback: try other btch functions if youtube/ytmp3 didn't work */
               if (!audioUrl) {
                 for (const fnName of Object.keys(btch)) {
                   if (typeof btch[fnName] !== "function") continue;
@@ -927,7 +901,7 @@ async function handleMessage(api, event) {
             }
           }
 
-          /* ═══ Send if we have a file (Methods 1 or 2 succeeded) ═══ */
+          /* Send if we have file */
           if (finalPath && fs.existsSync(finalPath)) {
             api.sendMessage({
               body: "",
@@ -946,7 +920,7 @@ async function handleMessage(api, event) {
             return;
           }
 
-          /* ═══ METHOD 3: iTunes preview (last resort) ═══ */
+          /* METHOD 3: iTunes preview */
           try {
             console.log(`[song] METHOD 3: iTunes preview → ${song.title}`);
             const itunes = await axios.get("https://itunes.apple.com/search", {
@@ -980,7 +954,6 @@ async function handleMessage(api, event) {
             console.log(`[song] METHOD 3 failed: ${e.message}`);
           }
 
-          /* All 3 methods failed */
           if (event.messageID) {
             try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
           }
@@ -1123,7 +1096,6 @@ async function handleMessage(api, event) {
     }
   }
 
-  /* ⚡ DEBUG: log commandBody */
   console.log(`[DEBUG-CMD] commandBody="${commandBody}" | isOwnerCmd=${isOwnerCmd}`);
 
   /* AUTO-LINK DOWNLOAD */
@@ -1169,7 +1141,6 @@ async function handleMessage(api, event) {
     return;
   }
 
-  /* If no valid command body, exit */
   if (!commandBody) {
     console.log(`[DEBUG-EXIT] no commandBody — exiting`);
     return;
@@ -1185,17 +1156,14 @@ async function handleMessage(api, event) {
 
   if (!command) return;
 
-  /* FORBIDDEN */
   if (FORBIDDEN_COMMANDS.has(command.name)) {
     return api.sendMessage("⛔ That command is disabled for policy reasons.", threadID);
   }
 
-  /* SAFETY FILTER */
   if (args.length && !safeText(args.join(" "))) {
     return api.sendMessage("⛔ Blocked content detected.", threadID);
   }
 
-  /* COOLDOWN */
   if (!isOwner) {
     const last = cooldowns.get(senderID) || 0;
     const remaining = config.cooldown - (Date.now() - last);
@@ -1209,7 +1177,6 @@ async function handleMessage(api, event) {
     if (cooldowns.size > 5000) cooldowns.clear();
   }
 
-  /* ROLE GATE */
   if (command.role === 1 && !senderIsAdmin) {
     return api.sendMessage("⛔ This command is for group admins only.", threadID);
   }
@@ -1217,7 +1184,6 @@ async function handleMessage(api, event) {
     return api.sendMessage("⛔ This command is for the bot owner only.", threadID);
   }
 
-  /* EXECUTE WITH AUTO-FIX */
   try {
     console.log(`[DEBUG-EXEC] executing: ${command.name}`);
     await command.execute(api, event, args, db, config, { prefix, commands });
@@ -1273,7 +1239,7 @@ async function handleEvent(api, event) {
   try { group = await getGroup(threadID); } catch (_) { return; }
   const s = group.settings;
 
-  /* JOIN EVENT */
+  /* ========== JOIN EVENT ========== */
   if (logMessageType === "log:subscribe") {
     const added = (logMessageData && logMessageData.addedParticipants) || [];
     const me = String(api.getCurrentUserID());
@@ -1301,89 +1267,151 @@ async function handleEvent(api, event) {
     if (!addedUsers.length) return;
 
     const adderID = String((logMessageData && logMessageData.author) || "");
-    const { generateWelcomeCard, loadAvatar, loadGroupLogo } = require("./utils/welcomeCard");
 
-    let groupInfo = getCachedGroupInfo(threadID);
-    const t0 = Date.now();
+    if (!global.__welcomeBucket) global.__welcomeBucket = {};
+    if (!global.__welcomeTimers) global.__welcomeTimers = {};
 
-    const [adderResult, groupLogo, ...avatars] = await Promise.all([
-      (async () => {
-        let name = "Admin";
-        if (adderID && adderID !== "0" && adderID !== me) {
-          try {
-            const info = await api.getUserInfo(adderID);
-            if (info && info[adderID] && info[adderID].name) name = info[adderID].name;
-          } catch (_) {}
-        }
-        const avatar = (adderID && adderID !== "0" && adderID !== me)
-          ? await loadAvatar(adderID)
-          : null;
-        return { name, avatar };
-      })(),
-      loadGroupLogo(threadID).catch(() => null),
-      ...addedUsers.map((u) => loadAvatar(u.id).catch(() => null))
-    ]);
+    if (!global.__welcomeBucket[threadID]) {
+      global.__welcomeBucket[threadID] = {
+        users: [],
+        adderID: adderID
+      };
+    }
 
-    if (!groupInfo) {
+    for (const u of addedUsers) {
+      const exists = global.__welcomeBucket[threadID].users.some((x) => x.id === u.id);
+      if (!exists) {
+        global.__welcomeBucket[threadID].users.push(u);
+      }
+    }
+
+    if (global.__welcomeTimers[threadID]) {
+      clearTimeout(global.__welcomeTimers[threadID]);
+    }
+
+    global.__welcomeTimers[threadID] = setTimeout(async () => {
+      const bucket = global.__welcomeBucket[threadID];
+      delete global.__welcomeBucket[threadID];
+      delete global.__welcomeTimers[threadID];
+
+      if (!bucket || !bucket.users.length) return;
+
+      const totalJoined = bucket.users.length;
+      log(`[welcome] 10s window closed — ${totalJoined} user(s) joined`);
+
+      if (totalJoined >= 5) {
+        log(`[welcome] ${totalJoined} >= 5 — skipping card to avoid spam`);
+        return;
+      }
+
       try {
-        const tInfo = await api.getThreadInfo(threadID);
-        groupInfo = {
-          name: tInfo.threadName || group.name || "the group",
-          memberCount: (tInfo.participantIDs || []).length,
-          adminCount: (tInfo.adminIDs || []).length,
-          maleCount: 0,
-          femaleCount: 0
-        };
-        try {
-          const ids = tInfo.participantIDs || [];
-          const limited = ids.slice(0, 200);
-          const infos = await api.getUserInfo(limited);
-          for (const id of limited) {
-            const g = infos[String(id)]?.gender;
-            if (g === 2) groupInfo.maleCount++;
-            else if (g === 1) groupInfo.femaleCount++;
+        const { generateWelcomeCard, loadAvatar, loadGroupLogo } = require("./utils/welcomeCard");
+
+        let groupInfo = getCachedGroupInfo(threadID);
+        const t0 = Date.now();
+
+        const adderResult = await (async () => {
+          let name = "Admin";
+          if (bucket.adderID && bucket.adderID !== "0" && bucket.adderID !== me) {
+            try {
+              const info = await api.getUserInfo(bucket.adderID);
+              if (info && info[bucket.adderID] && info[bucket.adderID].name) {
+                name = info[bucket.adderID].name;
+              }
+            } catch (_) {}
           }
-        } catch (_) {}
-        setCachedGroupInfo(threadID, groupInfo);
-        if (!group.name) { group.name = groupInfo.name; scheduleSave(); }
-      } catch (_) {
-        groupInfo = {
-          name: group.name || "the group",
-          memberCount: 0, adminCount: 0,
-          maleCount: 0, femaleCount: 0
-        };
-      }
-    }
+          const avatar = (bucket.adderID && bucket.adderID !== "0" && bucket.adderID !== me)
+            ? await loadAvatar(bucket.adderID).catch(() => null)
+            : null;
+          return { name, avatar };
+        })();
 
-    const loadTime = Date.now() - t0;
-    log(`[welcome] prep ${addedUsers.length} user(s) in ${loadTime}ms`);
+        const [groupLogo, ...avatars] = await Promise.all([
+          loadGroupLogo(threadID).catch(() => null),
+          ...bucket.users.map((u) => loadAvatar(u.id).catch(() => null))
+        ]);
 
-    for (let i = 0; i < addedUsers.length; i++) {
-      const u = addedUsers[i];
-      const addedAvatar = avatars[i];
-      try {
-        const cardBuffer = await generateWelcomeCard({
-          addedName: u.name, addedAvatar,
-          adderName: adderResult.name, adderAvatar: adderResult.avatar,
-          groupName: groupInfo.name, groupLogo,
-          memberCount: groupInfo.memberCount, adminCount: groupInfo.adminCount,
-          maleCount: groupInfo.maleCount, femaleCount: groupInfo.femaleCount
-        });
-        const tmpPath = path.join(os.tmpdir(), `nexus_welcome_${u.id}_${Date.now()}.png`);
-        await fs.writeFile(tmpPath, cardBuffer);
-        api.sendMessage({
-          body: `👋 Welcome ${u.name}!`,
-          mentions: [{ tag: u.name, id: u.id }],
-          attachment: fs.createReadStream(tmpPath)
-        }, threadID, () => {
-          try { fs.unlinkSync(tmpPath); } catch (_) {}
-        });
+        if (!groupInfo) {
+          try {
+            const tInfo = await api.getThreadInfo(threadID);
+            groupInfo = {
+              name: tInfo.threadName || group.name || "the group",
+              memberCount: (tInfo.participantIDs || []).length,
+              adminCount: (tInfo.adminIDs || []).length,
+              maleCount: 0,
+              femaleCount: 0
+            };
+
+            try {
+              const ids = tInfo.participantIDs || [];
+              const limited = ids.slice(0, 200);
+              const infos = await api.getUserInfo(limited);
+              for (const id of limited) {
+                const g = infos[String(id)]?.gender;
+                if (g === 2) groupInfo.maleCount++;
+                else if (g === 1) groupInfo.femaleCount++;
+              }
+            } catch (_) {}
+
+            setCachedGroupInfo(threadID, groupInfo);
+
+            if (!group.name) {
+              group.name = groupInfo.name;
+              scheduleSave();
+            }
+          } catch (_) {
+            groupInfo = {
+              name: group.name || "the group",
+              memberCount: 0, adminCount: 0,
+              maleCount: 0, femaleCount: 0
+            };
+          }
+        }
+
+        const loadTime = Date.now() - t0;
+        log(`[welcome] prep ${bucket.users.length} user(s) in ${loadTime}ms`);
+
+        for (let i = 0; i < bucket.users.length; i++) {
+          const u = bucket.users[i];
+          const addedAvatar = avatars[i];
+
+          try {
+            const cardBuffer = await generateWelcomeCard({
+              addedName: u.name,
+              addedAvatar,
+              adderName: adderResult.name,
+              adderAvatar: adderResult.avatar,
+              groupName: groupInfo.name,
+              groupLogo,
+              memberCount: groupInfo.memberCount,
+              adminCount: groupInfo.adminCount,
+              maleCount: groupInfo.maleCount,
+              femaleCount: groupInfo.femaleCount
+            });
+
+            const tmpPath = path.join(os.tmpdir(), `nexus_welcome_${u.id}_${Date.now()}.png`);
+            await fs.writeFile(tmpPath, cardBuffer);
+
+            api.sendMessage({
+              body: `👋 Welcome ${u.name}!`,
+              mentions: [{ tag: u.name, id: u.id }],
+              attachment: fs.createReadStream(tmpPath)
+            }, threadID, () => {
+              try { fs.unlinkSync(tmpPath); } catch (_) {}
+            });
+          } catch (e) {
+            console.error("[welcome-card] failed:", e.message);
+            api.sendMessage(`👋 Welcome ${u.name}!`, threadID);
+          }
+
+          if (i < bucket.users.length - 1) await sleep(1000);
+        }
+
       } catch (e) {
-        console.error("[welcome-card] failed:", e.message);
-        api.sendMessage(`👋 Welcome ${u.name}!`, threadID);
+        console.error("[welcome] batch failed:", e.message);
       }
-      if (i < addedUsers.length - 1) await sleep(500);
-    }
+    }, 10000);
+
     return;
   }
 
@@ -1507,7 +1535,7 @@ function startHttpServer() {
     wrapSendMessage(api);
     api.setOptions({
       listenEvents: true,
-      selfListen: true,        /* ⚡ TEST — set false after testing */
+      selfListen: true,
       updatePresence: false,
       autoMarkRead: false,
       forceLogin: false,
@@ -1526,7 +1554,6 @@ function startHttpServer() {
       botNickConfig, loadBotNickConfig, buildFinalNickname
     };
 
-    /* ⚡ DEBUG: log MQTT setup */
     console.log("[MQTT] listenMqtt starting...");
 
     api.listenMqtt(async (err, event) => {
@@ -1539,7 +1566,6 @@ function startHttpServer() {
         return;
       }
 
-      /* ⚡ DEBUG: log every event */
       console.log(`[MQTT-EVENT] type=${event.type} body="${(event.body || "").slice(0, 30)}" sender=${event.senderID} thread=${event.threadID}`);
 
       try {
@@ -1550,17 +1576,14 @@ function startHttpServer() {
           await handleEvent(api, event);
 
         } else if (event.type === "message_reaction") {
-          /* ═══ 😡 ANGRY EMOJI AUTO-DELETE ═══ */
           try {
             const reaction = event.reaction || "";
             const messageID = String(event.messageID || "");
 
-            /* Check angry emoji + bot's own message */
             if (ANGRY_EMOJIS.includes(reaction) && BOT_MESSAGES.has(messageID)) {
               const tracked = BOT_MESSAGES.get(messageID);
               console.log(`[angry] ${reaction} detected on bot msg ${messageID}`);
 
-              /* Check if angrydel enabled for this group */
               let adEnabled = true;
               try {
                 const AD_FILE = path.join(DATA_DIR, "angrydel.json");
