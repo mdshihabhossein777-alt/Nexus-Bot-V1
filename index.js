@@ -693,6 +693,25 @@ async function handleMessage(api, event) {
       }
     } catch (_) {}
   }
+ 
+
+  /* ═══ VIDEO DOWNLOADER REPLY HANDLER (/vd search) ═══ */
+  if (event.messageReply && body) {
+    try {
+      const vdCmd = commands.get("vd");
+      if (vdCmd && typeof vdCmd.handleReply === "function") {
+        const handled = await vdCmd.handleReply(
+          api, event, event.messageID, threadID, senderID, body
+        );
+        if (handled) return;
+      }
+    } catch (e) {
+      console.error("[vd reply]", e.message);
+    }
+  }
+
+
+
 
   /* ═══════════════════════════════════════════════════════════════════════
      SONG SELECTION — Enhanced with 3-stage fallback
