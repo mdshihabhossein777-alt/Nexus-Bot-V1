@@ -326,25 +326,6 @@ const db = {
   }
 };
 
-/* ---------------------------------------------------------------------------
-   6. SAFETY FILTER
-   --------------------------------------------------------------------------- */
-const BLOCKED_WORDS = [
-  "", "", "", "", "", "", "", "",
-  "kill yourself", "keys", "", ""
-];
-
-function safeText(t) {
-  const low = String(t).toLowerCase();
-  return !BLOCKED_WORDS.some((w) => low.includes(w));
-}
-
-const FORBIDDEN_COMMANDS = new Set([
-  "", "", "", "",
-  "", "", ""
-]);
-
-
 /* ⚡ Bot message tracker for angry-delete system */
 const BOT_MESSAGES = new Map();
 const ANGRY_EMOJIS = ["😡", "🤬", "😠", "💢", "👿", "😾", "🖕", "👎", "🤮", "💩"];
@@ -355,8 +336,6 @@ setInterval(() => {
     if (data.timestamp < cutoff) BOT_MESSAGES.delete(id);
   }
 }, 5 * 60 * 1000);
-
-
 
 /* ---------------------------------------------------------------------------
    7. ANTI-BAN WRAPPER
@@ -417,7 +396,7 @@ function wrapSendMessage(api) {
    8. COMMAND LOADER
    --------------------------------------------------------------------------- */
 const COMMANDS_DIR = path.join(__dirname, "commands");
-const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", " chatting", "cloud"];
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", "cloud"];
 
 const commands = new Map();
 const linkTriggers = [];
@@ -549,10 +528,7 @@ async function handleMessage(api, event) {
 
   if (!threadID || !senderID) return;
 
-
-
-
-  /* ⚡ UNIVERSAL TRIGGERS — handles reply/text/regex from any command */
+  /* ⚡ UNIVERSAL TRIGGERS */
   if (body) {
     try {
       const handled = await checkTriggers(api, event, db, config, commands, body, senderID);
@@ -562,10 +538,7 @@ async function handleMessage(api, event) {
     }
   }
 
-
-
-
-  /* ⚡ SCREENSHOT REPLY HOOK — reply to URL with "Xsc" or "sc" or "screenshot" */
+  /* ⚡ SCREENSHOT REPLY HOOK */
   if (event.messageReply && body && /^(xsc|sc|ss|screenshot|snap|webshot)$/i.test(body.trim())) {
     try {
       console.log(`[sc-hook] triggered: "${body}"`);
@@ -579,9 +552,7 @@ async function handleMessage(api, event) {
     }
   }
 
-
-
-  /* ⚡ CLOUD SAVE HOOK — "S" or "S <name>" (owner only) */
+  /* ⚡ CLOUD SAVE HOOK */
   if (event.messageReply && body && /^S(\s|$)/i.test(body.trim())) {
     try {
       const isOwner = String(senderID) === String(config.ownerID) ||
@@ -599,7 +570,7 @@ async function handleMessage(api, event) {
     }
   }
 
-  /* ⚡ BLACKLIST CHECK — block blacklisted users */
+  /* ⚡ BLACKLIST CHECK */
   try {
     const BL_FILE = path.join(DATA_DIR, "blacklist.json");
     if (fs.existsSync(BL_FILE)) {
@@ -627,7 +598,7 @@ async function handleMessage(api, event) {
     }
   }
 
-  /* ⚡ BOT CHAT HOOK — owner-only trigger + forced reply-to */
+  /* ⚡ BOT CHAT HOOK */
   if (body && !body.startsWith(config.prefix)) {
     try {
       const botCmd = commands.get("bot");
@@ -746,7 +717,7 @@ async function handleMessage(api, event) {
     } catch (_) {}
   }
 
-  /* ═══ VIDEO DOWNLOADER REPLY HANDLER (/vd search) ═══ */
+  /* ═══ VIDEO DOWNLOADER REPLY HANDLER ═══ */
   if (event.messageReply && body) {
     try {
       const vdCmd = commands.get("vd");
@@ -806,11 +777,7 @@ async function handleMessage(api, event) {
             let cookiesPath = null;
             for (const c of cookieCandidates) {
               try {
-                if (fs.existsSync(c)) {
-                  cookiesPath = c;
-                  console.log(`[song] cookies file found: ${c}`);
-                  break;
-                }
+                if (fs.existsSync(c)) { cookiesPath = c; break; }
               } catch (_) {}
             }
 
@@ -820,13 +787,8 @@ async function handleMessage(api, event) {
                 const tmpCookie = path.join(os.tmpdir(), "yt-cookies.txt");
                 fs.writeFileSync(tmpCookie, decoded);
                 cookiesPath = tmpCookie;
-                console.log(`[song] cookies decoded from env (${decoded.length} chars)`);
-              } catch (e) {
-                console.log(`[song] cookie decode failed: ${e.message}`);
-              }
+              } catch (_) {}
             }
-
-            console.log(`[song] yt-dlp starting... (cookies: ${cookiesPath ? "yes" : "no"})`);
 
             const ytdlpOpts = {
               output: tmpPath,
@@ -855,7 +817,6 @@ async function handleMessage(api, event) {
 
             if (finalPath && fs.existsSync(finalPath)) {
               const stat = fs.statSync(finalPath);
-              console.log(`[song] yt-dlp downloaded: ${stat.size} bytes`);
               if (stat.size < 50000) {
                 try { fs.unlinkSync(finalPath); } catch (_) {}
                 finalPath = null;
@@ -890,10 +851,7 @@ async function handleMessage(api, event) {
                   try {
                     const data = await btch[fnName](ytUrl);
                     audioUrl = findBtchAudioUrl(data);
-                    if (audioUrl) {
-                      console.log(`[song] btch.${fnName} returned audio URL`);
-                      break;
-                    }
+                    if (audioUrl) break;
                   } catch (_) {}
                 }
               }
@@ -904,10 +862,7 @@ async function handleMessage(api, event) {
                   responseType: "stream",
                   timeout: 120000,
                   maxContentLength: 100 * 1024 * 1024,
-                  headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "*/*"
-                  }
+                  headers: { "User-Agent": "Mozilla/5.0", "Accept": "*/*" }
                 });
 
                 await new Promise((resolve, reject) => {
@@ -921,13 +876,9 @@ async function handleMessage(api, event) {
                 const stat = fs.statSync(p);
                 if (stat.size >= 50000) {
                   finalPath = p;
-                  console.log(`[song] ✅ btch-downloader: ${stat.size} bytes`);
                 } else {
                   try { fs.unlinkSync(p); } catch (_) {}
-                  console.log(`[song] btch file too small (${stat.size} bytes)`);
                 }
-              } else {
-                console.log(`[song] btch-downloader: no audio URL in response`);
               }
             } catch (e) {
               console.log(`[song] METHOD 2 failed: ${e.message}`);
@@ -942,8 +893,6 @@ async function handleMessage(api, event) {
             }, threadID, (err) => {
               if (!err && event.messageID) {
                 try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
-              } else if (err) {
-                console.log(`[song] send failed: ${err.message}`);
               }
               try { fs.unlinkSync(finalPath); } catch (_) {}
               if (tmpPath && tmpPath !== finalPath) {
@@ -991,8 +940,7 @@ async function handleMessage(api, event) {
             try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
           }
           api.sendMessage(
-            "❌ Song download failed in all 3 methods.\n" +
-            "💡 YouTube may be blocking this server. Try another song.",
+            "❌ Song download failed in all 3 methods.",
             threadID
           );
           return;
@@ -1189,14 +1137,6 @@ async function handleMessage(api, event) {
 
   if (!command) return;
 
-  if (FORBIDDEN_COMMANDS.has(command.name)) {
-    return api.sendMessage("⛔ That command is disabled for policy reasons.", threadID);
-  }
-
-  if (args.length && !safeText(args.join(" "))) {
-    return api.sendMessage("⛔ Blocked content detected.", threadID);
-  }
-
   if (!isOwner) {
     const last = cooldowns.get(senderID) || 0;
     const remaining = config.cooldown - (Date.now() - last);
@@ -1272,7 +1212,7 @@ async function handleEvent(api, event) {
   try { group = await getGroup(threadID); } catch (_) { return; }
   const s = group.settings;
 
-  /* ========== JOIN EVENT ========== */
+  /* JOIN EVENT */
   if (logMessageType === "log:subscribe") {
     const added = (logMessageData && logMessageData.addedParticipants) || [];
     const me = String(api.getCurrentUserID());
@@ -1305,35 +1245,26 @@ async function handleEvent(api, event) {
     if (!global.__welcomeTimers) global.__welcomeTimers = {};
 
     if (!global.__welcomeBucket[threadID]) {
-      global.__welcomeBucket[threadID] = {
-        users: [],
-        adderID: adderID
-      };
+      global.__welcomeBucket[threadID] = { users: [], adderID: adderID };
     }
 
     for (const u of addedUsers) {
       const exists = global.__welcomeBucket[threadID].users.some((x) => x.id === u.id);
-      if (!exists) {
-        global.__welcomeBucket[threadID].users.push(u);
-      }
+      if (!exists) global.__welcomeBucket[threadID].users.push(u);
     }
 
-    if (global.__welcomeTimers[threadID]) {
-      clearTimeout(global.__welcomeTimers[threadID]);
-    }
+    if (global.__welcomeTimers[threadID]) clearTimeout(global.__welcomeTimers[threadID]);
 
     global.__welcomeTimers[threadID] = setTimeout(async () => {
       const bucket = global.__welcomeBucket[threadID];
       delete global.__welcomeBucket[threadID];
       delete global.__welcomeTimers[threadID];
-
       if (!bucket || !bucket.users.length) return;
 
       const totalJoined = bucket.users.length;
       log(`[welcome] 10s window closed — ${totalJoined} user(s) joined`);
-
       if (totalJoined >= 5) {
-        log(`[welcome] ${totalJoined} >= 5 — skipping card to avoid spam`);
+        log(`[welcome] ${totalJoined} >= 5 — skipping card`);
         return;
       }
 
@@ -1348,14 +1279,11 @@ async function handleEvent(api, event) {
           if (bucket.adderID && bucket.adderID !== "0" && bucket.adderID !== me) {
             try {
               const info = await api.getUserInfo(bucket.adderID);
-              if (info && info[bucket.adderID] && info[bucket.adderID].name) {
-                name = info[bucket.adderID].name;
-              }
+              if (info && info[bucket.adderID] && info[bucket.adderID].name) name = info[bucket.adderID].name;
             } catch (_) {}
           }
           const avatar = (bucket.adderID && bucket.adderID !== "0" && bucket.adderID !== me)
-            ? await loadAvatar(bucket.adderID).catch(() => null)
-            : null;
+            ? await loadAvatar(bucket.adderID).catch(() => null) : null;
           return { name, avatar };
         })();
 
@@ -1371,8 +1299,7 @@ async function handleEvent(api, event) {
               name: tInfo.threadName || group.name || "the group",
               memberCount: (tInfo.participantIDs || []).length,
               adminCount: (tInfo.adminIDs || []).length,
-              maleCount: 0,
-              femaleCount: 0
+              maleCount: 0, femaleCount: 0
             };
 
             try {
@@ -1387,22 +1314,11 @@ async function handleEvent(api, event) {
             } catch (_) {}
 
             setCachedGroupInfo(threadID, groupInfo);
-
-            if (!group.name) {
-              group.name = groupInfo.name;
-              scheduleSave();
-            }
+            if (!group.name) { group.name = groupInfo.name; scheduleSave(); }
           } catch (_) {
-            groupInfo = {
-              name: group.name || "the group",
-              memberCount: 0, adminCount: 0,
-              maleCount: 0, femaleCount: 0
-            };
+            groupInfo = { name: group.name || "the group", memberCount: 0, adminCount: 0, maleCount: 0, femaleCount: 0 };
           }
         }
-
-        const loadTime = Date.now() - t0;
-        log(`[welcome] prep ${bucket.users.length} user(s) in ${loadTime}ms`);
 
         for (let i = 0; i < bucket.users.length; i++) {
           const u = bucket.users[i];
@@ -1410,16 +1326,11 @@ async function handleEvent(api, event) {
 
           try {
             const cardBuffer = await generateWelcomeCard({
-              addedName: u.name,
-              addedAvatar,
-              adderName: adderResult.name,
-              adderAvatar: adderResult.avatar,
-              groupName: groupInfo.name,
-              groupLogo,
-              memberCount: groupInfo.memberCount,
-              adminCount: groupInfo.adminCount,
-              maleCount: groupInfo.maleCount,
-              femaleCount: groupInfo.femaleCount
+              addedName: u.name, addedAvatar,
+              adderName: adderResult.name, adderAvatar: adderResult.avatar,
+              groupName: groupInfo.name, groupLogo,
+              memberCount: groupInfo.memberCount, adminCount: groupInfo.adminCount,
+              maleCount: groupInfo.maleCount, femaleCount: groupInfo.femaleCount
             });
 
             const tmpPath = path.join(os.tmpdir(), `nexus_welcome_${u.id}_${Date.now()}.png`);
@@ -1429,9 +1340,7 @@ async function handleEvent(api, event) {
               body: `👋 Welcome ${u.name}!`,
               mentions: [{ tag: u.name, id: u.id }],
               attachment: fs.createReadStream(tmpPath)
-            }, threadID, () => {
-              try { fs.unlinkSync(tmpPath); } catch (_) {}
-            });
+            }, threadID, () => { try { fs.unlinkSync(tmpPath); } catch (_) {} });
           } catch (e) {
             console.error("[welcome-card] failed:", e.message);
             api.sendMessage(`👋 Welcome ${u.name}!`, threadID);
@@ -1439,12 +1348,10 @@ async function handleEvent(api, event) {
 
           if (i < bucket.users.length - 1) await sleep(1000);
         }
-
       } catch (e) {
         console.error("[welcome] batch failed:", e.message);
       }
     }, 10000);
-
     return;
   }
 
@@ -1463,7 +1370,7 @@ async function handleEvent(api, event) {
     return;
   }
 
-    /* LEAVE / KICK EVENT */
+  /* LEAVE / KICK EVENT */
   if (logMessageType === "log:unsubscribe") {
     const leftID = String((logMessageData && logMessageData.leftParticipantFbId) || "");
     const kickerID = String((logMessageData && logMessageData.author) || "");
@@ -1471,11 +1378,9 @@ async function handleEvent(api, event) {
 
     if (!leftID || leftID === botID) return;
 
-    /* ⚡ Check if it's a KICK (admin removed) */
     const isKick = kickerID && kickerID !== "0" && kickerID !== leftID;
 
     if (isKick) {
-      /* ═══ KICK DETECTED — send GIF + short text ═══ */
       try {
         const kickCmd = commands.get("kickdetect");
         if (kickCmd && typeof kickCmd.handleKick === "function") {
@@ -1487,7 +1392,6 @@ async function handleEvent(api, event) {
       }
     }
 
-    /* ═══ Voluntary Leave — normal goodbye ═══ */
     let name = "Someone";
     try {
       const u = await api.getUserInfo(leftID);
@@ -1524,13 +1428,9 @@ function startHttpServer() {
     res.end(`${config.brandName} is running`);
   });
 
-  server.listen(config.port, () => {
-    log(`HTTP server on port ${config.port}`);
-  });
+  server.listen(config.port, () => { log(`HTTP server on port ${config.port}`); });
 
-  const publicUrl = process.env.RENDER_EXTERNAL_URL
-                 || process.env.APP_URL
-                 || process.env.PUBLIC_URL;
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || process.env.PUBLIC_URL;
 
   if (publicUrl) {
     const PING_MS = 14 * 60 * 1000;
@@ -1623,28 +1523,25 @@ function startHttpServer() {
       console.log(`[MQTT-EVENT] type=${event.type} body="${(event.body || "").slice(0, 30)}" sender=${event.senderID} thread=${event.threadID}`);
 
       try {
-              if (event.type === "message" || event.type === "message_reply") {
-        await handleMessage(api, event);
+        if (event.type === "message" || event.type === "message_reply") {
+          await handleMessage(api, event);
 
-      } else if (event.type === "event") {
-        await handleEvent(api, event);
+        } else if (event.type === "event") {
+          await handleEvent(api, event);
 
-      } else if (event.type === "message_reaction") {
-        /* ⚡ Universal reaction triggers */
-        try {
-          const handled = await checkTriggers(api, event, db, config, commands, event.reaction || "", event.senderID);
-          if (handled) return;
-        } catch (e) {
-          errl("[triggers-react]", e.message);
-        }
+        } else if (event.type === "message_reaction") {
+          try {
+            const handled = await checkTriggers(api, event, db, config, commands, event.reaction || "", event.senderID);
+            if (handled) return;
+          } catch (e) {
+            errl("[triggers-react]", e.message);
+          }
           try {
             const reaction = event.reaction || "";
             const messageID = String(event.messageID || "");
 
             if (ANGRY_EMOJIS.includes(reaction) && BOT_MESSAGES.has(messageID)) {
               const tracked = BOT_MESSAGES.get(messageID);
-              console.log(`[angry] ${reaction} detected on bot msg ${messageID}`);
-
               let adEnabled = true;
               try {
                 const AD_FILE = path.join(DATA_DIR, "angrydel.json");
@@ -1658,16 +1555,9 @@ function startHttpServer() {
               if (adEnabled) {
                 try {
                   api.unsendMessage(messageID, (e) => {
-                    if (!e) {
-                      console.log(`[angry] ✅ unsent message ${messageID}`);
-                      BOT_MESSAGES.delete(messageID);
-                    } else {
-                      console.log(`[angry] unsend fail: ${e.message || e}`);
-                    }
+                    if (!e) BOT_MESSAGES.delete(messageID);
                   });
-                } catch (e) {
-                  console.log(`[angry] unsend error: ${e.message}`);
-                }
+                } catch (_) {}
               }
             }
           } catch (e) {
