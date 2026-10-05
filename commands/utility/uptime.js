@@ -1,66 +1,23 @@
 /**
  * commands/utility/uptime.js
- * NEXUS BOT V1 — Uptime with fake PC specs + animated GIF
+ * NEXUS BOT V1 — Uptime with cloud GIF
  * © 2026
  */
 
-const axios = require("axios");
 const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
+const cloudStorage = require("../../utils/cloudStorage");
 
-/* ═══ Fetch animated GIF from multiple sources ═══ */
-async function fetchAnimatedGIF() {
-  const gifUrls = [
-    "https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif",
-    "https://media.giphy.com/media/077i6AULCXc0FKTj9s/giphy.gif",
-    "https://media.giphy.com/media/dxn6fRlTIShoeBr69N/giphy.gif",
-    "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif",
-    "https://media.tenor.com/2KyVW1Hlxb8AAAAC/hacker-hack.gif",
-    "https://media.tenor.com/On7kvXhzml4AAAAj/loading-gif.gif",
-    "https://media.tenor.com/9vRAkntogEMAAAAd/matrix-cyber.gif",
-  ];
+/* ═══ Cloud GIF name ═══ */
+const GIF_NAME = "upt";
 
-  /* Shuffle */
-  const shuffled = [...gifUrls].sort(() => Math.random() - 0.5);
-
-  for (const url of shuffled) {
-    try {
-      const r = await axios.get(url, {
-        responseType: "arraybuffer",
-        timeout: 12000,
-        maxContentLength: 25 * 1024 * 1024,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          "Accept": "image/gif,image/*,*/*"
-        }
-      });
-
-      const buf = Buffer.from(r.data);
-
-      /* ⚡ Verify it's a real GIF */
-      const isGIF87a = buf.slice(0, 6).toString() === "GIF87a";
-      const isGIF89a = buf.slice(0, 6).toString() === "GIF89a";
-
-      if (buf.length > 5000 && (isGIF87a || isGIF89a)) {
-        console.log(`[upt] got GIF: ${buf.length} bytes from ${url.slice(0, 50)}`);
-        return buf;
-      }
-    } catch (e) {
-      console.log(`[upt] failed ${url.slice(0, 40)}: ${e.message.slice(0, 40)}`);
-      continue;
-    }
-  }
-  return null;
-}
-
-/* ═══ Main command ═══ */
 module.exports = {
   name: "uptime",
   aliases: ["runtime", "upt", "up"],
-  version: "2.0.0",
+  version: "4.0.0",
   role: 0,
-  description: "Show bot uptime with fake high-end PC specs + GIF",
+  description: "Show bot uptime with fake PC specs + cloud GIF",
   usage: "/uptime  or  /upt",
   category: "utility",
 
@@ -105,15 +62,27 @@ module.exports = {
         `🔌 PSU        : 1600W 80+ Titanium\n` +
         `❄️ Cooling    : Custom Liquid Cooling\n` +
         `🪟 OS         : Windows 11 Pro (25H2)\n` +
-        `📊 CPU Usage  : 42%\n` +
-        `📊 GPU Usage  : 38%\n` +
+        `📊 CPU Usage  : 32%\n` +
+        `📊 GPU Usage  : 10%\n` +
         `🌐 Network    : 10 Gbps Fiber\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `🚀 NEXUS BOT V1`;
 
-      /* ═══ Fetch animated GIF ═══ */
-      const gifBuf = await fetchAnimatedGIF();
+      /* ═══ Load cloud GIF ═══ */
+      let gifBuf = null;
+      try {
+        const ownerID = String(config.ownerID);
+        gifBuf = await cloudStorage.getCloudFileBuffer(ownerID, GIF_NAME, { maxSize: 20 * 1024 * 1024 });
+        if (gifBuf) {
+          console.log(`[upt] cloud GIF loaded: ${(gifBuf.length / 1024).toFixed(0)} KB`);
+        } else {
+          console.log(`[upt] cloud GIF not found: ${GIF_NAME}`);
+        }
+      } catch (e) {
+        console.log(`[upt] cloud error: ${e.message.slice(0, 60)}`);
+      }
 
+      /* ═══ Send ═══ */
       if (gifBuf) {
         tmpPath = path.join(os.tmpdir(), `upt_${Date.now()}.gif`);
         await fs.writeFile(tmpPath, gifBuf);
@@ -124,13 +93,12 @@ module.exports = {
         }, threadID, () => {
           try { fs.unlinkSync(tmpPath); } catch (_) {}
         });
-
-        react("✅");
       } else {
-        /* Fallback: text only */
-        react("✅");
+        /* Text only fallback */
         api.sendMessage(body, threadID);
       }
+
+      react("✅");
 
     } catch (e) {
       console.error("[uptime] error:", e.message);
