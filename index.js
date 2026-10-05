@@ -604,28 +604,63 @@ async function handleMessage(api, event) {
     }
   }
 
-  /* ⚡ BOT CHAT HOOK */
+  /* ⚡ BOT CHAT HOOK — owner-only trigger + forced reply-to */
   if (body && !body.startsWith(config.prefix)) {
     try {
       const botCmd = commands.get("bot");
       if (botCmd && typeof botCmd.execute === "function") {
+        const senderIsOwnerOrAdmin = isOwnerOrAdmin(senderID);
         let shouldTrigger = false;
         let userArgs = [];
 
-        if (/^bot(\s|$)/i.test(body)) {
+        /* ✅ 1. Owner/admin writes "bot" or "bot <text>" */
+        if (senderIsOwnerOrAdmin && /^bot(\s|$)/i.test(body)) {
           shouldTrigger = true;
-          userArgs = body.replace(/^bot\s*/i, "").split(/\s+/).filter(Boolean);
+          const stripped = body.replace(/^bot\s*/i, "").trim();
+          userArgs = stripped ? stripped.split(/\s+/) : ["hi"];
         }
 
-        if (event.messageReply && event.messageReply.messageID &&
-            typeof botCmd.isBotReply === "function" &&
-            botCmd.isBotReply(event.messageReply.messageID)) {
+        /* ✅ 2. Reply to bot's message — anyone */
+        if (
+          !shouldTrigger &&
+          event.messageReply &&
+          event.messageReply.messageID &&
+          typeof botCmd.isBotReply === "function" &&
+          botCmd.isBotReply(event.messageReply.messageID)
+        ) {
           shouldTrigger = true;
           userArgs = [body];
         }
 
+        /* ✅ 3. @mention bot — anyone */
+        if (!shouldTrigger && event.mentions && typeof event.mentions === "object") {
+          const botUID = String(api.getCurrentUserID());
+          if (Object.keys(event.mentions).includes(botUID)) {
+            shouldTrigger = true;
+            const cleaned = body.replace(/@[^\s]+/g, "").trim();
+            userArgs = [cleaned || "hi"];
+          }
+        }
+
         if (shouldTrigger) {
-          await botCmd.execute(api, event, userArgs, db, config, { prefix: config.prefix, commands });
+          /* ⚡ Force reply-to user's message */
+          const _origSend = api.sendMessage.bind(api);
+          const replyToID = String(event.messageID);
+
+          api.sendMessage = function (message, tID, ...rest) {
+            /* Insert replyToID as 3rd arg — wrapped sender will put callback after */
+            return _origSend(message, tID, replyToID, ...rest);
+          };
+
+          try {
+            await botCmd.execute(api, event, userArgs, db, config, {
+              prefix: config.prefix,
+              commands
+            });
+          } finally {
+            /* Always restore original sendMessage */
+            api.sendMessage = _origSend;
+          }
           return;
         }
       }
@@ -633,7 +668,7 @@ async function handleMessage(api, event) {
       errl("[bot-hook] error:", e.message);
     }
   }
-
+  
   const isGroup  = !!event.isGroup;
   const isOwner  = isOwnerOrAdmin(senderID);
   const group    = isGroup ? await getGroup(threadID) : null;
