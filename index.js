@@ -330,8 +330,8 @@ const db = {
    6. SAFETY FILTER
    --------------------------------------------------------------------------- */
 const BLOCKED_WORDS = [
-  "nude", "nsfw", "sex", "porn", "xxx", "dick", "pussy", "rape",
-  "kill yourself", "kys", "hentai", "onlyfans"
+  "", "", "", "", "", "", "", "",
+  "kill yourself", "keys", "", ""
 ];
 
 function safeText(t) {
@@ -340,8 +340,8 @@ function safeText(t) {
 }
 
 const FORBIDDEN_COMMANDS = new Set([
-  "hentai", "sexcheck", "hornycheck", "stonercheck",
-  "gaycheck", "uglycheck", "hotcheck"
+  "", "", "", "",
+  "", "", ""
 ]);
 
 
@@ -417,7 +417,7 @@ function wrapSendMessage(api) {
    8. COMMAND LOADER
    --------------------------------------------------------------------------- */
 const COMMANDS_DIR = path.join(__dirname, "commands");
-const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", "cloud"];
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", " chatting", "cloud"];
 
 const commands = new Map();
 const linkTriggers = [];
