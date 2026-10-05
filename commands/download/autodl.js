@@ -1,4 +1,4 @@
-// commands/download/autodl.js - NEXUS V1 - 2026 Multi-Link Edition
+// commands/download/autodl.js - NEXUS V1 - 2026 Multi-Link Edition (Silent Mode)
 "use strict";
 
 const axios = require("axios");
@@ -30,7 +30,6 @@ function pickUrl(res) {
   if (typeof res === "string") return res.startsWith("http") ? res : null;
   if (typeof res !== "object") return null;
 
-  /* Direct keys — HD first */
   const directKeys = [
     "hd", "HD", "hdplay", "video_hd", "hdUrl",
     "sd", "SD", "play", "playUrl", "nowm", "nowmplay",
@@ -43,7 +42,6 @@ function pickUrl(res) {
     if (typeof v === "string" && v.startsWith("http")) return v;
   }
 
-  /* Recurse into common container keys */
   const containers = ["result", "results", "data", "medias", "links", "response", "medias"];
   for (const k of containers) {
     if (res[k]) {
@@ -52,7 +50,6 @@ function pickUrl(res) {
     }
   }
 
-  /* Array */
   if (Array.isArray(res)) {
     for (const item of res) {
       const r = pickUrl(item);
@@ -182,7 +179,6 @@ async function tryVidly(url, extHint = ".mp4") {
    TIKTOK
    ═══════════════════════════════════════════════════════════════════ */
 async function downloadTikTok(url) {
-  /* 1) tikwm */
   try {
     const r = await axios.get("https://www.tikwm.com/api/", {
       params: { url, hd: 1 },
@@ -195,8 +191,7 @@ async function downloadTikTok(url) {
       return {
         buffer, ext,
         meta: {
-          site: "TikTok",
-          icon: "🎵",
+          site: "TikTok", icon: "🎵",
           title: formatTitle(d.title),
           author: d.author?.unique_id ? `@${d.author.unique_id}` : null,
           quality: d.hd ? "HD 720p" : "SD 480p",
@@ -206,7 +201,6 @@ async function downloadTikTok(url) {
     }
   } catch (e) { warn(`[tiktok/tikwm] ${e.message}`); }
 
-  /* 2) btch fallback */
   const u = await tryBtch(["tiktok", "tt", "tiktokdl", "tikdown"], url);
   if (u) {
     const { buffer, ext } = await fetchBuffer(u, 90000, 50, ".mp4");
@@ -220,7 +214,6 @@ async function downloadTikTok(url) {
    FACEBOOK
    ═══════════════════════════════════════════════════════════════════ */
 async function downloadFacebook(url) {
-  /* 1) vidly (direct buffer) */
   const buf = await tryVidly(url);
   if (buf && buf.length > 10000) {
     return {
@@ -229,7 +222,6 @@ async function downloadFacebook(url) {
     };
   }
 
-  /* 2) btch */
   const btchUrl = await tryBtch(["facebook", "fbdown", "fbdl", "fb", "facebookdl"], url);
   if (btchUrl) {
     const { buffer, ext } = await fetchBuffer(btchUrl, 120000, 50, ".mp4");
@@ -239,7 +231,6 @@ async function downloadFacebook(url) {
     };
   }
 
-  /* 3) nayan */
   const nayanUrl = await tryNayan(["ndown", "facebook", "fb"], url);
   if (nayanUrl) {
     const { buffer, ext } = await fetchBuffer(nayanUrl, 120000, 50, ".mp4");
@@ -249,7 +240,6 @@ async function downloadFacebook(url) {
     };
   }
 
-  /* 4) vkr */
   try {
     const r = await axios.get(
       `https://vkrdownloader.org/server/?api_key=vkrdownloader&vkr=${encodeURIComponent(url)}`,
@@ -265,14 +255,13 @@ async function downloadFacebook(url) {
     }
   } catch (e) { warn(`[facebook/vkr] ${e.message}`); }
 
-  throw new Error("Facebook: all methods failed — video may be private");
+  throw new Error("Facebook download failed");
 }
 
 /* ═══════════════════════════════════════════════════════════════════
    INSTAGRAM
    ═══════════════════════════════════════════════════════════════════ */
 async function downloadInstagram(url) {
-  /* 1) vidly */
   const buf = await tryVidly(url);
   if (buf && buf.length > 10000) {
     return {
@@ -281,7 +270,6 @@ async function downloadInstagram(url) {
     };
   }
 
-  /* 2) btch */
   const btchUrl = await tryBtch(["instagram", "igdl", "ig", "instagramdl"], url);
   if (btchUrl) {
     const { buffer, ext } = await fetchBuffer(btchUrl, 90000, 50, ".mp4");
@@ -291,7 +279,6 @@ async function downloadInstagram(url) {
     };
   }
 
-  /* 3) nayan */
   const nayanUrl = await tryNayan(["ndown", "instagram", "ig"], url);
   if (nayanUrl) {
     const { buffer, ext } = await fetchBuffer(nayanUrl, 90000, 50, ".mp4");
@@ -301,7 +288,7 @@ async function downloadInstagram(url) {
     };
   }
 
-  throw new Error("Instagram download failed — post may be private");
+  throw new Error("Instagram download failed");
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -311,7 +298,6 @@ async function downloadYouTube(url) {
   const vid = (url.match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/) || [])[1];
   if (!vid) throw new Error("Invalid YouTube URL");
 
-  /* 1) btch */
   const btchUrl = await tryBtch(["youtube", "ytmp4", "yt", "ytdl", "youtubedl"], url);
   if (btchUrl) {
     const { buffer, ext } = await fetchBuffer(btchUrl, 180000, 50, ".mp4");
@@ -321,7 +307,6 @@ async function downloadYouTube(url) {
     };
   }
 
-  /* 2) nayan */
   const nayanUrl = await tryNayan(["ndown", "youtube", "yt"], url);
   if (nayanUrl) {
     const { buffer, ext } = await fetchBuffer(nayanUrl, 180000, 50, ".mp4");
@@ -331,7 +316,6 @@ async function downloadYouTube(url) {
     };
   }
 
-  /* 3) vidly */
   const buf = await tryVidly(url);
   if (buf && buf.length > 10000) {
     return {
@@ -339,26 +323,6 @@ async function downloadYouTube(url) {
       meta: { site: "YouTube", icon: "▶️", title: `YouTube Video (${vid})`, quality: "HD", stats: "🔗 via vidly" }
     };
   }
-
-  /* 4) thumbnail fallback */
-  try {
-    const r = await axios.get("https://www.youtube.com/oembed", {
-      params: { url: `https://www.youtube.com/watch?v=${vid}`, format: "json" },
-      timeout: 15000
-    });
-    const { buffer, ext } = await fetchBuffer(r.data.thumbnail_url, 30000, 10, ".jpg");
-    return {
-      buffer, ext,
-      meta: {
-        site: "YouTube",
-        icon: "▶️",
-        title: formatTitle(r.data.title),
-        author: r.data.author_name,
-        quality: "Thumbnail (video DL blocked)",
-        stats: `🔗 https://youtu.be/${vid}`
-      }
-    };
-  } catch (_) {}
 
   throw new Error("YouTube download failed");
 }
@@ -471,11 +435,10 @@ async function downloadSoundCloud(url) {
   return {
     buffer: null,
     meta: {
-      site: "SoundCloud",
-      icon: "🎵",
+      site: "SoundCloud", icon: "🎵",
       title: formatTitle(r.data.title),
       author: r.data.author_name,
-      quality: "Info only (direct DL blocked)",
+      quality: "Info only",
       stats: `🔗 ${url}`
     }
   };
@@ -492,8 +455,7 @@ async function downloadSpotify(url) {
   return {
     buffer, ext,
     meta: {
-      site: "Spotify",
-      icon: "🎧",
+      site: "Spotify", icon: "🎧",
       title: formatTitle(r.data.title),
       author: r.data.author_name,
       quality: "Cover Art (HQ)"
@@ -527,8 +489,7 @@ async function downloadMediaFire(url) {
   return {
     buffer: null,
     meta: {
-      site: "MediaFire",
-      icon: "📁",
+      site: "MediaFire", icon: "📁",
       title: "MediaFire File",
       quality: "Link only",
       stats: `🔗 ${match[1]}`
@@ -654,9 +615,9 @@ async function processOneUrl(api, threadID, url, footer) {
 module.exports = {
   name: "autodl",
   aliases: ["autodownload", "adl", "dl"],
-  version: "11.0.0",
+  version: "12.0.0",
   role: 0,
-  description: "Auto-download from any supported link (multi-link support)",
+  description: "Auto-download from any supported link (silent error)",
   usage: "/autodl <url...> | /autodl on|off | just paste links",
   autoDownload: true,
   patterns: [
@@ -682,19 +643,20 @@ module.exports = {
     const firstArg = (args && args[0]) ? String(args[0]).toLowerCase() : "";
     if (firstArg === "on" || firstArg === "off") {
       if (!event.isGroup) {
-        return api.sendMessage(`⚠️ Groups only.\n\n✨ ${FOOTER} ✨`, threadID);
+        if (messageID) await react(api, "❌", messageID, threadID);
+        return;
       }
       const g = await db.getGroup(threadID);
       g.settings.autoDownload = (firstArg === "on");
       await g.save();
       db.cache.set(`group_${threadID}`, g, 30);
       return api.sendMessage(
-        `📥 Auto-download: ${g.settings.autoDownload ? "ON ✅" : "OFF ❌"}\n\n✨ ${FOOTER} ✨`,
+        `📥 Auto-download: ${g.settings.autoDownload ? "ON ✅" : "OFF ❌"}`,
         threadID
       );
     }
 
-    /* ═══ Extract ALL URLs from body (works for command + auto-trigger) ═══ */
+    /* ═══ Extract ALL URLs from body ═══ */
     const matches = String(body || "").match(/https?:\/\/[^\s]+/gi) || [];
     const cleaned = matches.map((u) => u.replace(/[),.;:!?]+$/, ""));
     const unique = [...new Set(cleaned)];
@@ -702,47 +664,35 @@ module.exports = {
     const supported = unique.filter((u) => findHandler(u));
     const unsupported = unique.filter((u) => !findHandler(u));
 
-    /* ═══ No URLs → help ═══ */
+    /* ═══ No URLs at all → silent ═══ */
     if (!unique.length) {
+      /* Shudhu help show korbe jodi /autodl likha hoy, na hole silent */
+      const isCommand = body && /^[\/.!?#]/i.test(body.trim());
+      if (!isCommand) return;
+
       return api.sendMessage(
         `╭─────────────────────────╮\n` +
         `   📥 AUTO DOWNLOADER\n` +
         `╰─────────────────────────╯\n\n` +
         `Just paste any link — no command needed.\n\n` +
-        `✅ TikTok\n✅ Facebook\n✅ Instagram\n✅ YouTube\n✅ Twitter/X\n✅ Pinterest\n✅ Threads\n✅ CapCut\n✅ SoundCloud\n✅ Spotify\n✅ Google Drive\n✅ MediaFire\n\n` +
         `📌 Multi-link: max ${MAX_LINKS} links per message\n\n` +
-        `Toggle: /autodl on|off\n\n✨ ${FOOTER} ✨`,
+        `Toggle: /autodl on|off`,
         threadID
       );
     }
 
-    /* ═══ No supported URLs ═══ */
+    /* ═══ No supported URLs → silent (only reaction) ═══ */
     if (!supported.length) {
-      return api.sendMessage(
-        `❓ No supported links found.\n\n✨ ${FOOTER} ✨`,
-        threadID
-      );
+      if (messageID) await react(api, "❌", messageID, threadID);
+      return;
     }
 
     /* ═══ Enforce max ═══ */
     const toProcess = supported.slice(0, MAX_LINKS);
-    const overflow = supported.length - toProcess.length;
-
-    /* ═══ Notify if multiple ═══ */
-    if (toProcess.length > 1) {
-      try {
-        api.sendMessage(
-          `📥 Processing ${toProcess.length} links...\n` +
-          (overflow > 0 ? `⚠️ ${overflow} extra link(s) skipped (max ${MAX_LINKS})\n` : "") +
-          `\n✨ ${FOOTER} ✨`,
-          threadID
-        );
-      } catch (_) {}
-    }
 
     if (messageID) await react(api, "⏳", messageID, threadID);
 
-    /* ═══ Process sequentially ═══ */
+    /* ═══ Process sequentially — SILENT on failure ═══ */
     const results = { ok: 0, failed: 0, info: 0 };
 
     for (let i = 0; i < toProcess.length; i++) {
@@ -756,57 +706,26 @@ module.exports = {
           else results.ok++;
         } else {
           results.failed++;
-          try {
-            api.sendMessage(
-              `❌ Failed: ${r.site || "Unknown"}\n` +
-              `📌 ${url.slice(0, 80)}\n` +
-              `💬 ${String(r.error).slice(0, 100)}\n\n` +
-              `✨ ${FOOTER} ✨`,
-              threadID
-            );
-          } catch (_) {}
+          /* ⚡ NO ERROR MESSAGE — only count */
         }
       } catch (e) {
         errl(`[multi] unexpected: ${e.message}`);
         results.failed++;
+        /* ⚡ NO ERROR MESSAGE */
       }
 
-      /* Delay between links */
       if (i < toProcess.length - 1) await sleep(1500);
     }
 
-    /* ═══ Final reaction ═══ */
+    /* ═══ Final reaction only ═══ */
     if (messageID) {
       if (results.failed === 0) await react(api, "✅", messageID, threadID);
-      else if (results.ok + results.info > 0) await react(api, "⚠️", messageID, threadID);
+      else if (results.ok + results.info > 0) await react(api, "✅", messageID, threadID);
       else await react(api, "❌", messageID, threadID);
     }
 
-    /* ═══ Batch summary ═══ */
-    if (toProcess.length > 1) {
-      const summary = [
-        `╭─────────────────────────╮`,
-        `   📊 BATCH SUMMARY`,
-        `╰─────────────────────────╯`,
-        ``,
-        `✅ Success: ${results.ok}`,
-        `ℹ️ Info only: ${results.info}`,
-        `❌ Failed: ${results.failed}`,
-        ``,
-        `✨ ${FOOTER} ✨`
-      ].join("\n");
-      try { api.sendMessage(summary, threadID); } catch (_) {}
-    }
-
-    /* ═══ Unsupported warning ═══ */
-    if (unsupported.length) {
-      try {
-        api.sendMessage(
-          `⚠️ ${unsupported.length} unsupported link(s) ignored.`,
-          threadID
-        );
-      } catch (_) {}
-    }
+    /* ═══ NO batch summary, NO unsupported warning ═══ */
+    /* Silent — shudhu reactions diye bujhbe */
   }
 };
 // Powered by Shihab
