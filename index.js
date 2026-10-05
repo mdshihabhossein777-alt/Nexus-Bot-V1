@@ -1448,20 +1448,41 @@ async function handleEvent(api, event) {
     return;
   }
 
-  /* LEAVE EVENT */
+    /* LEAVE / KICK EVENT */
   if (logMessageType === "log:unsubscribe") {
     const leftID = String((logMessageData && logMessageData.leftParticipantFbId) || "");
-    if (leftID && leftID !== String(api.getCurrentUserID())) {
-      let name = "Someone";
+    const kickerID = String((logMessageData && logMessageData.author) || "");
+    const botID = String(api.getCurrentUserID());
+
+    if (!leftID || leftID === botID) return;
+
+    /* ⚡ Check if it's a KICK (admin removed) */
+    const isKick = kickerID && kickerID !== "0" && kickerID !== leftID;
+
+    if (isKick) {
+      /* ═══ KICK DETECTED — send GIF + short text ═══ */
       try {
-        const u = await api.getUserInfo(leftID);
-        name = (u && u[leftID] && u[leftID].name) || name;
-      } catch (_) {}
-      const text = s.goodbyeMsg
-        ? s.goodbyeMsg.replace(/{name}/g, name).replace(/{group}/g, group.name || "this group")
-        : `👋 ${name} left the group.`;
-      api.sendMessage(text, threadID);
+        const kickCmd = commands.get("kickdetect");
+        if (kickCmd && typeof kickCmd.handleKick === "function") {
+          await kickCmd.handleKick(api, event, db, config);
+          return;
+        }
+      } catch (e) {
+        errl("[kick-hook] error:", e.message);
+      }
     }
+
+    /* ═══ Voluntary Leave — normal goodbye ═══ */
+    let name = "Someone";
+    try {
+      const u = await api.getUserInfo(leftID);
+      name = (u && u[leftID] && u[leftID].name) || name;
+    } catch (_) {}
+
+    const text = s.goodbyeMsg
+      ? s.goodbyeMsg.replace(/{name}/g, name).replace(/{group}/g, group.name || "this group")
+      : `👋 ${name} left the group.`;
+    api.sendMessage(text, threadID);
     return;
   }
 }
