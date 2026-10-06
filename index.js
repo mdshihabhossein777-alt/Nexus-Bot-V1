@@ -396,7 +396,7 @@ function wrapSendMessage(api) {
    8. COMMAND LOADER
    --------------------------------------------------------------------------- */
 const COMMANDS_DIR = path.join(__dirname, "commands");
-const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", "cloud"];
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom", "imagetools", "imagegen", "cloud", "troll"];
 
 const commands = new Map();
 const linkTriggers = [];
