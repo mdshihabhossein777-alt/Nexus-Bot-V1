@@ -21,11 +21,19 @@ function formatNumber(n) {
   return String(n);
 }
 
+/* ═══ Extract YouTube ID from URL ═══ */
+function extractVideoId(text) {
+  const m = String(text).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
 /* ═══ Send list with one thumbnail ═══ */
 async function sendListWithThumb(api, threadID, results, msg) {
   let thumbPath = null;
   try {
     const thumbUrl = results[0].thumbnail;
+    if (!thumbUrl) throw new Error("no thumb");
+
     const r = await axios.get(thumbUrl, {
       responseType: "arraybuffer",
       timeout: 15000,
@@ -34,6 +42,7 @@ async function sendListWithThumb(api, threadID, results, msg) {
     });
     thumbPath = path.join(os.tmpdir(), `ytb_thumb_${Date.now()}.jpg`);
     await fs.writeFile(thumbPath, Buffer.from(r.data));
+
     return await new Promise((resolve) => {
       api.sendMessage({
         body: msg,
@@ -50,13 +59,48 @@ async function sendListWithThumb(api, threadID, results, msg) {
   }
 }
 
+/* ═══ Get video info from ID ═══ */
+async function getVideoInfoFromId(videoId) {
+  try {
+    const r = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
+      timeout: 20000,
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+    });
+    const html = r.data;
+    const titleMatch = html.match(/<meta\s+name="title"\s+content="([^"]+)"/);
+    const channelMatch = html.match(/"ownerChannelName":"([^"]+)"/);
+    const durationMatch = html.match(/"lengthSeconds":"(\d+)"/);
+    const viewsMatch = html.match(/"viewCount":"(\d+)"/);
+
+    return {
+      videoId,
+      title: titleMatch ? titleMatch[1] : "Unknown",
+      author: { name: channelMatch ? channelMatch[1] : "Unknown" },
+      seconds: durationMatch ? parseInt(durationMatch[1]) : 0,
+      views: viewsMatch ? parseInt(viewsMatch[1]) : 0,
+      thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      timestamp: null,
+      ago: null
+    };
+  } catch (_) {
+    return {
+      videoId,
+      title: `YouTube Video (${videoId})`,
+      author: { name: "Unknown" },
+      seconds: 0,
+      views: 0,
+      thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+    };
+  }
+}
+
 module.exports = {
   name: "ytb",
   aliases: ["yt", "youtube"],
-  version: "1.0.0",
+  version: "1.1.0",
   role: 0,
   description: "YouTube video/audio downloader",
-  usage: "/ytb [-v|-a|-i] <query>",
+  usage: "/ytb [-v|-a|-i] <query | url>",
   category: "download",
 
   execute: async function (api, event, args, db, config) {
@@ -82,6 +126,7 @@ module.exports = {
       query = String(messageReply.body).trim();
     }
 
+    /* ═══ Help ═══ */
     if (!query && !type) {
       react("❓");
       return api.sendMessage(
@@ -93,7 +138,8 @@ module.exports = {
         "  /ytb -i <video>  → Info\n\n" +
         "💡 Example:\n" +
         "  /ytb -a tanvir evan\n" +
-        "  /ytb -v naruto amv",
+        "  /ytb -v naruto amv\n" +
+        "  /ytb -a https://youtu.be/xxxxx",
         threadID
       );
     }
@@ -103,43 +149,77 @@ module.exports = {
       return api.sendMessage("❌ Query dao: /ytb -a <song name>", threadID);
     }
 
-    /* Default → audio */
     if (!type) type = "audio";
 
     react("⏳");
     console.log(`[ytb] search: "${query}" type=${type}`);
 
     try {
-      /* ═══ Search YouTube ═══ */
-      const search = await yts(query);
-      const videos = (search?.videos || [])
-        .filter((v) => v && v.videoId && v.seconds >= 30)
-        .slice(0, 6);
+      /* ═══ Check if query is a URL ═══ */
+      const directId = extractVideoId(query);
+      let videos = [];
+
+      if (directId) {
+        /* ═══ URL mode — direct ═══ */
+        console.log(`[ytb] URL detected: ${directId}`);
+        const v = await getVideoInfoFromId(directId);
+        videos = [v];
+      } else {
+        /* ═══ Search mode ═══ */
+        const search = await yts(query);
+        videos = (search?.videos || [])
+          .filter((v) => v && v.videoId && v.seconds >= 30)
+          .slice(0, 6);
+      }
 
       if (!videos.length) {
         react("❌");
         return api.sendMessage(`❌ "${query}" — kono result pai ni`, threadID);
       }
 
-      /* ═══ If only one result and info requested → show directly ═══ */
-      if (type === "info" && videos.length >= 1) {
+      /* ═══ Info mode ═══ */
+      if (type === "info") {
         const v = videos[0];
-        const hours = Math.floor(v.seconds / 3600);
-        const mins = Math.floor((v.seconds % 3600) / 60);
-        const secs = v.seconds % 60;
-        const time = `${hours ? hours + ":" : ""}${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        const secs = v.seconds || 0;
+        const hours = Math.floor(secs / 3600);
+        const mins = Math.floor((secs % 3600) / 60);
+        const s = secs % 60;
+        const time = `${hours ? hours + ":" : ""}${String(mins).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 
         const infoMsg =
           "💠 VIDEO INFO\n" +
           "━━━━━━━━━━━━━━━━━━━━\n" +
-          "📝 Title: " + v.title + "\n" +
+          "📝 Title: " + (v.title || "Unknown") + "\n" +
           "🏪 Channel: " + (v.author?.name || "Unknown") + "\n" +
           "⏱ Duration: " + time + "\n" +
           "👀 Views: " + formatNumber(v.views || 0) + "\n" +
-          "🆙 Uploaded: " + (v.ago || "Unknown") + "\n" +
           "🔗 Link: https://youtu.be/" + v.videoId;
 
         await sendListWithThumb(api, threadID, videos, infoMsg);
+        react("✅");
+        return;
+      }
+
+      /* ═══ Direct URL — skip list, download ═══ */
+      if (directId) {
+        console.log(`[ytb] direct download: ${directId}`);
+
+        ytbStore.set(`direct_${threadID}_${senderID}`, {
+          results: videos,
+          type,
+          threadID: String(threadID),
+          senderID: String(senderID),
+          time: Date.now()
+        });
+
+        /* Trigger download via triggers.js */
+        const triggers = require("../../utils/triggers");
+        if (typeof triggers.forceDownload === "function") {
+          await triggers.forceDownload(api, event, videos[0], type);
+        } else {
+          /* Fallback — mimic reply */
+          api.sendMessage("⏳ Downloading...", threadID);
+        }
         react("✅");
         return;
       }
@@ -155,8 +235,8 @@ module.exports = {
       lines.push("");
 
       videos.forEach((v, i) => {
-        lines.push(`${i + 1}. ${v.title.slice(0, 50)}`);
-        lines.push(`   👤 ${(v.author?.name || "Unknown").slice(0, 25)}  ⏱ ${v.timestamp || "0:00"}`);
+        lines.push(`${i + 1}. ${String(v.title).slice(0, 50)}`);
+        lines.push(`   👤 ${String(v.author?.name || "Unknown").slice(0, 25)}  ⏱ ${v.timestamp || "0:00"}`);
       });
 
       const listMsg = lines.join("\n");

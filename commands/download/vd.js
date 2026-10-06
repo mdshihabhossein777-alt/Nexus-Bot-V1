@@ -1,7 +1,6 @@
 /**
  * commands/download/vd.js
- * NEXUS BOT V1 — Universal Video Downloader (URL + search by name)
- * Short cmd: /vd
+ * NEXUS BOT V1 — Video Downloader (fixed)
  * © 2026
  */
 
@@ -13,9 +12,7 @@ const path = require("path");
 const os = require("os");
 const yts = require("yt-search");
 
-/* ═══════════════════════════════════════════════════════════════════
-   SEARCH STORE (for reply selection)
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Search Store ═══ */
 const vdSearches = new Map();
 
 setInterval(() => {
@@ -26,37 +23,31 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
-/* ═══════════════════════════════════════════════════════════════════
-   PLATFORM DETECTOR
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Platform Detector ═══ */
 function detectPlatform(url) {
   const u = String(url).toLowerCase();
-  if (/tiktok\.com|vt\.tiktok|vm\.tiktok/.test(u))      return "tiktok";
-  if (/instagram\.com|instagr\.am/.test(u))              return "instagram";
-  if (/facebook\.com|fb\.watch|fb\.me/.test(u))          return "facebook";
-  if (/youtube\.com|youtu\.be/.test(u))                  return "youtube";
-  if (/twitter\.com|x\.com/.test(u))                     return "twitter";
-  if (/pinterest\.com|pin\.it/.test(u))                  return "pinterest";
-  if (/reddit\.com|redd\.it/.test(u))                    return "reddit";
-  if (/snapchat\.com/.test(u))                           return "snapchat";
-  if (/threads\.net/.test(u))                            return "threads";
-  if (/capcut\.com/.test(u))                             return "capcut";
-  if (/likee\.video/.test(u))                            return "likee";
-  if (/vimeo\.com/.test(u))                              return "vimeo";
-  if (/dailymotion\.com|dai\.ly/.test(u))                return "dailymotion";
-  if (/twitch\.tv/.test(u))                              return "twitch";
-  if (/soundcloud\.com/.test(u))                         return "soundcloud";
-  if (/spotify\.com/.test(u))                            return "spotify";
+  if (/tiktok\.com|vt\.tiktok|vm\.tiktok/.test(u)) return "tiktok";
+  if (/instagram\.com|instagr\.am/.test(u))         return "instagram";
+  if (/facebook\.com|fb\.watch|fb\.me/.test(u))     return "facebook";
+  if (/youtube\.com|youtu\.be/.test(u))             return "youtube";
+  if (/twitter\.com|x\.com/.test(u))                return "twitter";
+  if (/pinterest\.com|pin\.it/.test(u))             return "pinterest";
+  if (/reddit\.com|redd\.it/.test(u))               return "reddit";
+  if (/snapchat\.com/.test(u))                      return "snapchat";
+  if (/threads\.net/.test(u))                       return "threads";
+  if (/capcut\.com/.test(u))                        return "capcut";
+  if (/likee\.video/.test(u))                       return "likee";
+  if (/vimeo\.com/.test(u))                         return "vimeo";
+  if (/dailymotion\.com|dai\.ly/.test(u))           return "dailymotion";
+  if (/soundcloud\.com/.test(u))                    return "soundcloud";
+  if (/spotify\.com/.test(u))                       return "spotify";
   return "unknown";
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   FIND VIDEO URL FROM ANY RESPONSE
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Find Video URL from any response ═══ */
 const SKIP_KEYS = new Set([
   "thumbnail", "thumb", "cover", "poster", "image", "img",
-  "avatar", "photo", "audio", "mp3", "music", "preview", "icon",
-  "profile_pic", "profilePic", "avatar_url"
+  "avatar", "photo", "audio", "mp3", "music", "preview", "icon"
 ]);
 
 function looksLikeVideoUrl(v) {
@@ -77,15 +68,14 @@ function findVideoUrl(data, depth = 0) {
   }
   if (typeof data !== "object") return null;
 
-  const hdKeys = ["hd", "HD", "hdplay", "playHD", "video_hd", "hdVideo", "hdUrl", "hd_url"];
+  const hdKeys = ["hd", "HD", "hdplay", "playHD", "video_hd", "hdUrl"];
   for (const k of hdKeys) if (looksLikeVideoUrl(data[k])) return data[k];
 
   const vKeys = [
-    "video", "videoUrl", "video_url", "videourl",
+    "video", "videoUrl", "video_url",
     "download_url", "downloadUrl", "download",
-    "nowm", "nowmplay", "nowatermark", "no_watermark",
-    "play", "playUrl", "play_url",
-    "mp4", "mp4Url", "mp4_url",
+    "nowm", "nowmplay", "no_watermark",
+    "play", "playUrl", "mp4", "mp4Url",
     "url", "link", "src"
   ];
   for (const k of vKeys) if (looksLikeVideoUrl(data[k])) return data[k];
@@ -98,63 +88,43 @@ function findVideoUrl(data, depth = 0) {
   return null;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   GET VIDEO URL — multi-source fallback
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Multi-source Video URL ═══ */
 async function getVideoUrl(url, platform) {
   const errors = [];
 
-  /* ── SOURCE 1: btch-downloader ── */
+  /* SOURCE 1: btch-downloader */
   try {
     const btch = require("btch-downloader");
     const fnMap = {
-      tiktok:    ["tiktok", "tiktokdl", "tt"],
+      tiktok: ["tiktok", "tiktokdl", "tt"],
       instagram: ["instagram", "igdl", "ig"],
-      facebook:  ["facebook", "fbdl", "fb"],
-      youtube:   ["youtube", "ytmp4", "yt"],
-      twitter:   ["twitter", "twitterdl", "twdl"],
+      facebook: ["facebook", "fbdl", "fb"],
+      youtube: ["youtube", "ytmp4", "yt"],
+      twitter: ["twitter", "twitterdl", "twdl"],
       pinterest: ["pinterest", "pindl"],
-      reddit:    ["reddit", "redditdl"],
-      snapchat:  ["snapchat", "snapdl"],
-      soundcloud:["soundcloud", "scdl"],
-      spotify:   ["spotify"],
-      capcut:    ["capcut"],
-      likee:     ["likee"],
-      threads:   ["threads"],
-      vimeo:     ["vimeo"],
-      dailymotion:["dailymotion", "dm"]
+      reddit: ["reddit", "redditdl"],
+      snapchat: ["snapchat", "snapdl"],
+      soundcloud: ["soundcloud", "scdl"],
+      spotify: ["spotify"],
+      capcut: ["capcut"],
+      likee: ["likee"],
+      threads: ["threads"],
+      vimeo: ["vimeo"],
+      dailymotion: ["dailymotion", "dm"]
     };
 
     const fns = fnMap[platform] || [];
-
     for (const fnName of fns) {
       if (typeof btch[fnName] !== "function") continue;
       try {
         const data = await btch[fnName](url);
         const vid = findVideoUrl(data);
-        if (vid) {
-          console.log(`[vd] ✅ btch.${fnName} worked`);
-          return vid;
-        }
+        if (vid) { console.log(`[vd] ✅ btch.${fnName}`); return vid; }
       } catch (e) { errors.push(`btch.${fnName}: ${e.message}`); }
-    }
-
-    for (const fnName of Object.keys(btch)) {
-      if (typeof btch[fnName] !== "function") continue;
-      if (fnName.startsWith("_") || fnName.startsWith("v")) continue;
-      if (fns.includes(fnName)) continue;
-      try {
-        const data = await btch[fnName](url);
-        const vid = findVideoUrl(data);
-        if (vid) {
-          console.log(`[vd] ✅ btch.${fnName} (brute) worked`);
-          return vid;
-        }
-      } catch (_) {}
     }
   } catch (e) { errors.push(`btch: ${e.message}`); }
 
-  /* ── SOURCE 2: fdown-downloader ── */
+  /* SOURCE 2: fdown-downloader */
   try {
     const fdown = require("fdown-downloader");
     for (const fnName of Object.keys(fdown)) {
@@ -162,15 +132,12 @@ async function getVideoUrl(url, platform) {
       try {
         const data = await fdown[fnName](url);
         const vid = findVideoUrl(data);
-        if (vid) {
-          console.log(`[vd] ✅ fdown.${fnName} worked`);
-          return vid;
-        }
+        if (vid) { console.log(`[vd] ✅ fdown.${fnName}`); return vid; }
       } catch (_) {}
     }
   } catch (e) { errors.push(`fdown: ${e.message}`); }
 
-  /* ── SOURCE 3: nayan-media-downloader ── */
+  /* SOURCE 3: nayan-media-downloader */
   try {
     const ndl = require("nayan-media-downloader");
     for (const fnName of Object.keys(ndl)) {
@@ -178,43 +145,87 @@ async function getVideoUrl(url, platform) {
       try {
         const data = await ndl[fnName](url);
         const vid = findVideoUrl(data);
-        if (vid) {
-          console.log(`[vd] ✅ nayan.${fnName} worked`);
-          return vid;
-        }
+        if (vid) { console.log(`[vd] ✅ nayan.${fnName}`); return vid; }
       } catch (_) {}
     }
   } catch (e) { errors.push(`nayan: ${e.message}`); }
 
-  /* ── SOURCE 4: yt-dlp for YouTube ── */
-  if (platform === "youtube") {
-    try {
-      const { YtDlp } = require("ytdlp-nodejs");
-      const ytdlp = new YtDlp();
-      const info = await ytdlp.getInfo(url);
-      const formats = (info && info.formats) || [];
-      const mp4 = formats
-        .filter((f) => f.ext === "mp4" && f.vcodec !== "none" && f.url)
-        .sort((a, b) => (b.height || 0) - (a.height || 0))[0];
-      if (mp4) {
-        console.log(`[vd] ✅ ytdlp worked`);
-        return mp4.url;
-      }
-    } catch (e) { errors.push(`ytdlp: ${e.message}`); }
-  }
-
-  throw new Error("No source worked. " + (errors.length ? "(" + errors.slice(0, 2).join(" | ") + ")" : ""));
+  throw new Error("No source worked. " + errors.slice(0, 2).join(" | "));
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   DOWNLOAD FILE
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Cookie Path Resolver ═══ */
+function getCookiePath() {
+  const candidates = [
+    path.join(__dirname, "..", "..", "cookies.txt"),
+    "/opt/render/project/src/cookies.txt",
+    "/app/cookies.txt",
+    path.join(process.cwd(), "cookies.txt"),
+    path.join(os.tmpdir(), "yt-cookies.txt")
+  ];
+
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c; } catch (_) {}
+  }
+
+  if (process.env.YT_COOKIES_B64) {
+    try {
+      const decoded = Buffer.from(process.env.YT_COOKIES_B64, "base64").toString("utf8");
+      const tmp = path.join(os.tmpdir(), "yt-cookies.txt");
+      fs.writeFileSync(tmp, decoded);
+      return tmp;
+    } catch (_) {}
+  }
+  return null;
+}
+
+/* ═══ Direct YouTube Download via yt-dlp (Bug fix) ═══ */
+async function downloadYoutubeDirect(videoId) {
+  const { YtDlp } = require("ytdlp-nodejs");
+  const ytdlp = new YtDlp();
+
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  const tmpPath = path.join(os.tmpdir(), `vd_yt_${Date.now()}.mp4`);
+
+  const opts = {
+    output: tmpPath,
+    videoQuality: "360",
+    noWarnings: true,
+    noProgress: true,
+    retries: 3,
+    extractorArgs: "youtube:player_client=android,ios,web_safari"
+  };
+
+  const cookiesPath = getCookiePath();
+  if (cookiesPath) opts.cookies = cookiesPath;
+
+  const result = await ytdlp.downloadVideo(url, "mp4", opts);
+
+  let finalPath = null;
+  if (result && result.filePaths && result.filePaths.length) {
+    finalPath = result.filePaths[0];
+  } else if (fs.existsSync(tmpPath)) {
+    finalPath = tmpPath;
+  }
+
+  if (!finalPath || !fs.existsSync(finalPath)) {
+    throw new Error("Download failed");
+  }
+
+  const stat = fs.statSync(finalPath);
+  if (stat.size < 10000) {
+    try { fs.unlinkSync(finalPath); } catch (_) {}
+    throw new Error("File too small");
+  }
+
+  return { path: finalPath, size: stat.size };
+}
+
+/* ═══ Stream Download (for non-YouTube) ═══ */
 async function downloadFile(url, outPath) {
   const res = await axios.get(url, {
     responseType: "stream",
     timeout: 180000,
     maxContentLength: 100 * 1024 * 1024,
-    maxBodyLength: 100 * 1024 * 1024,
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       "Accept": "*/*"
@@ -238,9 +249,7 @@ async function downloadFile(url, outPath) {
   });
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   HELPERS
-   ═══════════════════════════════════════════════════════════════════ */
+/* ═══ Helpers ═══ */
 function extractUrl(text) {
   const m = String(text || "").match(/https?:\/\/[^\s]+/i);
   return m ? m[0] : null;
@@ -248,8 +257,7 @@ function extractUrl(text) {
 
 function guessExt(videoUrl) {
   const m = String(videoUrl).match(/\.(mp4|mov|webm|mkv|m4v)(\?|$)/i);
-  if (m) return m[1].toLowerCase();
-  return "mp4";
+  return m ? m[1].toLowerCase() : "mp4";
 }
 
 function cleanOldTmp() {
@@ -267,24 +275,34 @@ function cleanOldTmp() {
   } catch (_) {}
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   DOWNLOAD + SEND HELPER (shared by URL & search path)
-   ═══════════════════════════════════════════════════════════════════ */
-async function downloadAndSend(api, threadID, videoUrl, platform, react, messageID) {
-  let tmpPath = null;
-  try {
-    const ext = guessExt(videoUrl);
-    tmpPath = path.join(os.tmpdir(), `vd_${Date.now()}.${ext}`);
+/* ═══ Download + Send ═══ */
+async function downloadAndSend(api, threadID, source, platform, react) {
+  let finalPath = null;
 
-    const { size } = await downloadFile(videoUrl, tmpPath);
-    const mb = size / 1024 / 1024;
-    console.log(`[vd] downloaded ${mb.toFixed(2)} MB`);
+  try {
+    if (platform === "youtube" && source.videoId) {
+      /* ⚡ Direct yt-dlp download */
+      const r = await downloadYoutubeDirect(source.videoId);
+      finalPath = r.path;
+      const mb = r.size / 1024 / 1024;
+      console.log(`[vd] yt-dlp downloaded ${mb.toFixed(2)} MB`);
+    } else {
+      /* ⚡ Stream download */
+      const ext = guessExt(source.url);
+      finalPath = path.join(os.tmpdir(), `vd_${Date.now()}.${ext}`);
+      const r = await downloadFile(source.url, finalPath);
+      const mb = r.size / 1024 / 1024;
+      console.log(`[vd] streamed ${mb.toFixed(2)} MB`);
+    }
+
+    const stat = fs.statSync(finalPath);
+    const mb = stat.size / 1024 / 1024;
 
     if (mb > 25) {
       react("⚠️");
-      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      try { fs.unlinkSync(finalPath); } catch (_) {}
       api.sendMessage(
-        `⚠️ Video too big: ${mb.toFixed(1)} MB\n📦 Messenger limit: 25 MB\n\n🔗 ${videoUrl.slice(0, 280)}`,
+        `⚠️ Video too big: ${mb.toFixed(1)} MB\n📦 Messenger limit: 25 MB`,
         threadID
       );
       return;
@@ -293,24 +311,24 @@ async function downloadAndSend(api, threadID, videoUrl, platform, react, message
     react("✅");
     api.sendMessage({
       body: `🎬 ${platform.toUpperCase()} • ${mb.toFixed(2)} MB`,
-      attachment: fs.createReadStream(tmpPath)
-    }, threadID, (err) => {
-      try { fs.unlinkSync(tmpPath); } catch (_) {}
-      if (err) console.error("[vd] send err:", err.message);
+      attachment: fs.createReadStream(finalPath)
+    }, threadID, () => {
+      try { fs.unlinkSync(finalPath); } catch (_) {}
     });
+
   } catch (e) {
-    if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+    if (finalPath) { try { fs.unlinkSync(finalPath); } catch (_) {} }
     throw e;
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    MAIN COMMAND
-   ═══════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════ */
 module.exports = {
   name: "vd",
-  aliases: ["vid", "vdl", "video", "dl"],
-  version: "2.0.0",
+  aliases: ["vid", "vdl", "video"],   /* ⚠️ "dl" removed — conflict with autodl */
+  version: "2.1.0",
   role: 0,
   description: "Download video from URL or search by name",
   usage: "/vd <url | search term>",
@@ -327,21 +345,38 @@ module.exports = {
 
     cleanOldTmp();
 
-    /* Extract URL from args/body/reply */
+    /* ═══ Extract URL ═══ */
     let url = (args || []).find((a) => /^https?:\/\//i.test(a));
     if (!url) url = extractUrl(body);
     if (!url && messageReply && messageReply.body) url = extractUrl(messageReply.body);
 
-    /* ═══ CASE 1: URL present → download directly ═══ */
+    /* ═══ CASE 1: URL → download ═══ */
     if (url) {
       const platform = detectPlatform(url);
-      console.log(`[vd] URL mode: platform=${platform} url="${url.slice(0, 80)}"`);
-      react("⏳");
+      console.log(`[vd] URL mode: platform=${platform}`);
 
+      /* YouTube URL → direct yt-dlp */
+      if (platform === "youtube") {
+        const m = url.match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/);
+        if (m) {
+          react("⏳");
+          try {
+            await downloadAndSend(api, threadID, { videoId: m[1] }, "youtube", react);
+          } catch (e) {
+            console.error("[vd] error:", e.message);
+            react("❌");
+            api.sendMessage(`❌ Download failed: ${e.message.slice(0, 150)}`, threadID);
+          }
+          return;
+        }
+      }
+
+      /* Other platforms → get URL + stream */
+      react("⏳");
       try {
         const videoUrl = await getVideoUrl(url, platform);
         console.log(`[vd] video url: ${videoUrl.slice(0, 120)}`);
-        await downloadAndSend(api, threadID, videoUrl, platform, react, messageID);
+        await downloadAndSend(api, threadID, { url: videoUrl }, platform, react);
       } catch (e) {
         console.error("[vd] error:", e.message);
         react("❌");
@@ -353,12 +388,11 @@ module.exports = {
       return;
     }
 
-    /* ═══ CASE 2: No URL → search by name (YouTube) ═══ */
-    /* Strip command name from body */
+    /* ═══ CASE 2: Search by name ═══ */
     let query = (body || "").trim();
     const prefix = config.prefix || "/";
     if (query.startsWith(prefix)) query = query.slice(prefix.length).trim();
-    query = query.replace(/^(vd|vid|vdl|video|dl)\s+/i, "").trim();
+    query = query.replace(/^(vd|vid|vdl|video)\s+/i, "").trim();
 
     if (!query && args.length) query = args.join(" ").trim();
 
@@ -369,9 +403,7 @@ module.exports = {
         `━━━━━━━━━━━━━━━━━━\n` +
         `📌 Usage:\n` +
         `• /vd <url>           → direct download\n` +
-        `• /vd <search term>   → search YouTube\n\n` +
-        `✅ URL supports: TikTok, FB, IG, YT,\n` +
-        `   Twitter, Pinterest, Reddit & more`,
+        `• /vd <search term>   → search YouTube`,
         threadID
       );
     }
@@ -397,15 +429,13 @@ module.exports = {
         const title = String(v.title).slice(0, 45);
         const author = String(v.author?.name || "Unknown").slice(0, 20);
         const dur = v.timestamp || "0:00";
-        const views = v.views ? `${(v.views / 1000).toFixed(0)}K` : "?";
         lines.push(`${i + 1}. ${title}`);
-        lines.push(`   👤 ${author}  ⏱️ ${dur}  👁️ ${views}`);
+        lines.push(`   👤 ${author}  ⏱️ ${dur}`);
       });
-      lines.push(``, `📩 Reply with a number (1-${results.length}) to download.`);
+      lines.push(``, `📩 Reply with a number (1-${results.length})`);
 
       api.sendMessage(lines.join("\n"), threadID, (err, info) => {
-        if (err) return console.error("[vd] list err:", err.message);
-
+        if (err) return;
         const realMID = info?.messageID ? String(info.messageID) : null;
         const fallbackKey = `vdfb_${threadID}_${senderID}`;
         const storeKey = realMID || fallbackKey;
@@ -425,32 +455,26 @@ module.exports = {
         vdSearches.set(storeKey, data);
         if (realMID) vdSearches.set(fallbackKey, data);
 
-        /* Auto-unsend list after 60s */
         if (realMID) {
           setTimeout(() => {
             try { api.unsendMessage(realMID, () => {}); } catch (_) {}
           }, 60000);
         }
 
-        /* Cleanup after 5 min */
         setTimeout(() => {
           if (vdSearches.has(storeKey)) vdSearches.delete(storeKey);
           if (vdSearches.has(fallbackKey)) vdSearches.delete(fallbackKey);
         }, 5 * 60 * 1000);
-
-        console.log(`[vd] stored search: ${storeKey}`);
       });
 
     } catch (e) {
       console.error("[vd] search error:", e.message);
       react("❌");
-      api.sendMessage(`❌ Search failed: ${e.message}`, threadID);
+      api.sendMessage(`❌ Search failed: ${e.message.slice(0, 150)}`, threadID);
     }
   },
 
-  /* ═══════════════════════════════════════════════════════════════════
-     REPLY HANDLER — user replies with a number
-     ═══════════════════════════════════════════════════════════════════ */
+  /* ═══ Reply Handler ═══ */
   handleReply: async function (api, event, messageID, threadID, senderID, body) {
     if (!body) return false;
 
@@ -469,9 +493,6 @@ module.exports = {
     if (!entry || !entry.results || !entry.results[num - 1]) return false;
 
     const video = entry.results[num - 1];
-    if (event.messageID) {
-      try { api.setMessageReaction("⏳", event.messageID, threadID, () => {}); } catch (_) {}
-    }
 
     const react = (e) => {
       if (event.messageID) {
@@ -479,27 +500,18 @@ module.exports = {
       }
     };
 
+    react("⏳");
+
     try {
-      console.log(`[vd] downloading: ${video.title} (${video.videoId})`);
-      const url = `https://www.youtube.com/watch?v=${video.videoId}`;
-      const videoUrl = await getVideoUrl(url, "youtube");
+      console.log(`[vd] downloading: ${video.title}`);
+      await downloadAndSend(api, threadID, { videoId: video.videoId }, "youtube", react);
 
-      if (!videoUrl) throw new Error("No video URL found");
-
-      await downloadAndSend(api, threadID, videoUrl, "youtube", react, event.messageID);
-
-      /* Cleanup */
       if (replyToID) vdSearches.delete(replyToID);
       vdSearches.delete(fallbackKey);
     } catch (e) {
       console.error("[vd] download error:", e.message);
       react("❌");
-      api.sendMessage(
-        `❌ Download failed\n` +
-        `📌 ${video.title.slice(0, 50)}\n` +
-        `💬 ${e.message.slice(0, 150)}`,
-        threadID
-      );
+      api.sendMessage(`❌ Download failed: ${e.message.slice(0, 150)}`, threadID);
     }
 
     return true;
