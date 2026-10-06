@@ -1,35 +1,134 @@
 /**
  * utils/triggers.js
- * NEXUS BOT V1 — Universal trigger registry
- * 
- * Commands can register their own triggers here — NO index.js changes needed!
- * 
- * Usage in any command file:
- *   module.exports = {
- *     name: "mycommand",
- *     triggers: {
- *       reply: ["sc", "screenshot"],      // reply to message with these words
- *       text: ["hello", "hi"],             // message starts with these
- *       react: ["😡", "🤬"],               // emojis
- *       regex: [/^!x\s+/i]                 // custom regex
- *     },
- *     execute: ...
- *   }
+ * NEXUS BOT V1 — Universal trigger registry + YTB handler
+ * © 2026
  */
 
 "use strict";
 
 /**
  * Check all loaded commands for trigger matches.
- * Called from index.js ONE TIME at startup.
- * 
- * @returns { handled: boolean, command: object }
+ * Called from index.js at startup.
  */
 async function checkTriggers(api, event, db, config, commands, body, senderID) {
   const trimmed = (body || "").trim();
+
+  /* ═══════════════════════════════════════════════════════════
+     YTB REPLY HANDLER — number reply diye YouTube download
+     ═══════════════════════════════════════════════════════════ */
+  if (event.messageReply && event.messageReply.messageID && trimmed) {
+    try {
+      const ytbStore = require("./ytbStore");
+      const num = parseInt(trimmed);
+      const entry = ytbStore.get(String(event.messageReply.messageID));
+
+      if (entry && Number.isFinite(num) && num >= 1 && num <= entry.results.length) {
+        const video = entry.results[num - 1];
+        const threadID = event.threadID;
+        const messageID = event.messageID;
+        const senderIDstr = String(event.senderID || senderID);
+
+        if (messageID) try { api.setMessageReaction("⏳", messageID, threadID, () => {}); } catch (_) {}
+
+        ytbStore.delete(String(event.messageReply.messageID));
+
+        console.log(`[ytb-reply] ${entry.type} → ${video.title}`);
+
+        const fs = require("fs-extra");
+        const path = require("path");
+        const os = require("os");
+
+        try {
+          const { YtDlp } = require("ytdlp-nodejs");
+          const ytdlp = new YtDlp();
+          const url = `https://www.youtube.com/watch?v=${video.videoId}`;
+
+          /* Cookie path resolve */
+          const cookieCandidates = [
+            path.join(__dirname, "..", "cookies.txt"),
+            "/opt/render/project/src/cookies.txt",
+            "/app/cookies.txt",
+            path.join(process.cwd(), "cookies.txt"),
+            path.join(os.tmpdir(), "yt-cookies.txt")
+          ];
+
+          let cookiesPath = null;
+          for (const c of cookieCandidates) {
+            try { if (fs.existsSync(c)) { cookiesPath = c; break; } } catch (_) {}
+          }
+
+          if (!cookiesPath && process.env.YT_COOKIES_B64) {
+            try {
+              const decoded = Buffer.from(process.env.YT_COOKIES_B64, "base64").toString("utf8");
+              const tmp = path.join(os.tmpdir(), "yt-cookies.txt");
+              fs.writeFileSync(tmp, decoded);
+              cookiesPath = tmp;
+            } catch (_) {}
+          }
+
+          const ext = entry.type === "video" ? "mp4" : "mp3";
+          const tmpPath = path.join(os.tmpdir(), `ytb_${Date.now()}.${ext}`);
+
+          const opts = {
+            output: tmpPath,
+            noWarnings: true,
+            noProgress: true,
+            retries: 3,
+            extractorArgs: "youtube:player_client=android,ios,web_safari"
+          };
+          if (cookiesPath) opts.cookies = cookiesPath;
+
+          let result;
+          if (entry.type === "video") {
+            opts.videoQuality = "720";
+            result = await ytdlp.downloadVideo(url, "mp4", opts);
+          } else {
+            opts.audioQuality = "0";
+            result = await ytdlp.downloadAudio(url, "mp3", opts);
+          }
+
+          let finalPath = null;
+          if (result && result.filePaths && result.filePaths.length) {
+            finalPath = result.filePaths[0];
+          } else if (fs.existsSync(tmpPath)) {
+            finalPath = tmpPath;
+          }
+
+          if (!finalPath || !fs.existsSync(finalPath)) {
+            throw new Error("Download failed");
+          }
+
+          const stat = await fs.stat(finalPath);
+          console.log(`[ytb-reply] downloaded: ${stat.size} bytes`);
+          if (stat.size < 30000) throw new Error("File too small");
+
+          api.sendMessage({
+            body: "🎬 " + video.title,
+            attachment: fs.createReadStream(finalPath)
+          }, threadID, (err) => {
+            if (!err && messageID) {
+              try { api.setMessageReaction("✅", messageID, threadID, () => {}); } catch (_) {}
+            }
+            try { fs.unlinkSync(finalPath); } catch (_) {}
+          });
+
+          return true;
+
+        } catch (e) {
+          console.error("[ytb-reply] error:", e.message);
+          if (messageID) try { api.setMessageReaction("❌", messageID, threadID, () => {}); } catch (_) {}
+          api.sendMessage("❌ Download fail: " + e.message.slice(0, 60), threadID);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error("[ytb-trigger] error:", e.message);
+    }
+  }
+
   if (!trimmed) return false;
 
-  /* ═══ 1. REACTION TRIGGERS — event.type === "message_reaction" ═══ */
+  /* ═══ 1. REACTION TRIGGERS ═══ */
   if (event.type === "message_reaction") {
     const reaction = event.reaction || "";
     if (!reaction) return false;
@@ -55,7 +154,7 @@ async function checkTriggers(api, event, db, config, commands, body, senderID) {
     return false;
   }
 
-  /* ═══ 2. REPLY TRIGGERS — user replied to a message ═══ */
+  /* ═══ 2. REPLY TRIGGERS ═══ */
   if (event.messageReply && event.messageReply.messageID) {
     const lower = trimmed.toLowerCase();
 
@@ -63,7 +162,6 @@ async function checkTriggers(api, event, db, config, commands, body, senderID) {
       if (!cmd.triggers || !cmd.triggers.reply) continue;
       if (!Array.isArray(cmd.triggers.reply)) continue;
 
-      /* Check if message matches ANY reply trigger (exact word or starts with) */
       const matched = cmd.triggers.reply.some((t) => {
         const lt = String(t).toLowerCase();
         return lower === lt || lower.startsWith(lt + " ");
@@ -87,8 +185,7 @@ async function checkTriggers(api, event, db, config, commands, body, senderID) {
     }
   }
 
-  /* ═══ 3. TEXT/WORD TRIGGERS — no prefix needed ═══ */
-  /* Skip if message starts with prefix (that's a normal command) */
+  /* ═══ 3. TEXT/WORD TRIGGERS ═══ */
   if (!trimmed.startsWith(config.prefix)) {
     const lower = trimmed.toLowerCase();
 
@@ -114,7 +211,7 @@ async function checkTriggers(api, event, db, config, commands, body, senderID) {
     }
   }
 
-  /* ═══ 4. REGEX TRIGGERS — advanced patterns ═══ */
+  /* ═══ 4. REGEX TRIGGERS ═══ */
   for (const [key, cmd] of commands) {
     if (!cmd.triggers || !cmd.triggers.regex) continue;
     if (!Array.isArray(cmd.triggers.regex)) continue;
