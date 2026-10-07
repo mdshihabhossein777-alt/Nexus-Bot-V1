@@ -1,116 +1,196 @@
 /**
  * commands/ai/baby.js
- * NEXUS BOT V1 — Free Baby Chat (no API key)
+ * NEXUS BOT V1 — Cute Chat (baby/bot triggers + reply support)
  * © 2026
  */
 
 const axios = require("axios");
+const fs = require("fs-extra");
+const path = require("path");
 
 /* ═══ Trigger words ═══ */
-const TRIGGERS = ["baby", "bby", "jan", "mia", "babu", "janu"];
+const TRIGGERS = ["baby", "bby", "bot", "jan", "mia", "babu", "janu"];
 
-/* ═══ Free AI reply ═══ */
-async function getReply(text) {
-  /* Provider 1 — Pollinations AI */
+/* ═══ Bot message tracker (for reply detection) ═══ */
+const DATA_DIR = path.join(__dirname, "..", "..", "data");
+fs.ensureDirSync(DATA_DIR);
+const BOT_MSG_FILE = path.join(DATA_DIR, "baby_replies.json");
+
+function loadBotMsgs() {
+  try { return fs.readJsonSync(BOT_MSG_FILE) || {}; } catch (_) { return {}; }
+}
+function saveBotMsgs(d) {
+  try { fs.writeJsonSync(BOT_MSG_FILE, d); } catch (_) {}
+}
+
+function storeBotMsg(messageID, threadID, userID) {
+  const data = loadBotMsgs();
+  const now = Date.now();
+
+  /* Cleanup old (> 1 hour) */
+  for (const k of Object.keys(data)) {
+    if (now - (data[k].time || 0) > 60 * 60 * 1000) delete data[k];
+  }
+
+  data[String(messageID)] = {
+    threadID: String(threadID),
+    userID: String(userID),
+    time: now
+  };
+  saveBotMsgs(data);
+}
+
+function isBotMsg(messageID) {
+  const data = loadBotMsgs();
+  return !!data[String(messageID)];
+}
+
+/* ═══ Short cute fallbacks ═══ */
+const FALLBACK = [
+  "Hmm 🥰",
+  "Bolo na 😊",
+  "Ki holo?",
+  "Hmm? 🤭",
+  "Bolo bolo",
+  "Ji bolo?",
+  "Ami achi 🥺",
+  "Hihi 😄",
+  "Ki? 🥰",
+  "Bolo jan 💕"
+];
+
+/* ═══ AI reply (Pollinations) ═══ */
+async function getAIReply(userMsg, userName) {
+  const sys =
+    `You are a cute Bangladeshi girl named "Mia". ` +
+    `Reply in Bangla/Banglish (short 1 line max, 5-10 words). ` +
+    `Cute tone, playful, use 1 emoji max. ` +
+    `Never say you are AI/bot. ` +
+    `Reply direct, no prefix.`;
+
+  const prompt = `${sys}\n\n${userName}: ${userMsg}\nMia:`;
+
   try {
-    const url = `https://text.pollinations.ai/${encodeURIComponent(text)}?model=openai&seed=${Date.now()}`;
+    const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai&seed=${Date.now()}`;
     const r = await axios.get(url, {
-      timeout: 15000,
+      timeout: 12000,
       headers: { "User-Agent": "Mozilla/5.0" }
     });
+
     if (r.data && typeof r.data === "string") {
       let reply = r.data.trim();
       reply = reply.replace(/^["']|["']$/g, "");
-      if (reply.length > 300) reply = reply.slice(0, 297) + "...";
+      reply = reply.replace(/^(Mia|AI|Assistant|Girl|Nexus):\s*/i, "");
+
+      /* Force short */
+      if (reply.includes("\n")) reply = reply.split("\n")[0].trim();
+      if (reply.length > 100) {
+        const cut = reply.slice(0, 100);
+        const lastSpace = cut.lastIndexOf(" ");
+        reply = (lastSpace > 40 ? cut.slice(0, lastSpace) : cut) + "...";
+      }
+
       if (reply.length > 2) return reply;
     }
   } catch (e) {
-    console.log("[baby] pollinations fail:", e.message.slice(0, 40));
+    console.log("[baby] ai fail:", e.message.slice(0, 40));
   }
 
-  /* Provider 2 — Pollinations with prompt */
-  try {
-    const prompt = `You are a cute, playful girlfriend named "Mia". Reply in Bangla/Banglish (short 1-2 sentences, cute tone). User: ${text}\nMia:`;
-    const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
-    const r = await axios.get(url, {
-      timeout: 15000,
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-    if (r.data && typeof r.data === "string") {
-      let reply = r.data.trim();
-      reply = reply.replace(/^["']|["']$/g, "");
-      reply = reply.replace(/^(Mia|AI|Assistant|Girl):\s*/i, "");
-      if (reply.length > 300) reply = reply.slice(0, 297) + "...";
-      if (reply.length > 2) return reply;
-    }
-  } catch (_) {}
-
-  /* Fallback */
-  const fb = [
-    "Bolo jan 🥺",
-    "Hmm ki holo? 😚",
-    "Ami sunchi bolo 💕",
-    "Ki korte pari tomar jonno? 🐥",
-    "Hehe moja lagche 😍"
-  ];
-  return fb[Math.floor(Math.random() * fb.length)];
+  return FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
 }
 
+/* ═══ Random typing delay (human-like) ═══ */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN COMMAND
+   ═══════════════════════════════════════════════════════════ */
 module.exports = {
   name: "baby",
-  aliases: ["bby", "mia", "jan", "babu"],
-  version: "2.0.0",
+  aliases: ["bby", "mia", "jan", "babu", "bot"],
+  version: "3.0.0",
   role: 0,
-  description: "Free baby chat (no API key)",
-  usage: "baby <text>",
+  description: "Cute baby chat — no prefix",
+  usage: "baby <text>  OR  bot <text>  OR  reply to bot",
   category: "ai",
 
-  /* ═══ Text triggers — no prefix needed ═══ */
+  /* ═══ Trigger words ═══ */
   triggers: {
     text: TRIGGERS
   },
 
+  /* ═══ For reply detection ═══ */
+  isBotReply: isBotMsg,
+  storeBotReply: storeBotMsg,
+
   execute: async function (api, event, args, db, config) {
-    const { threadID, messageID, senderID, body } = event;
+    const { threadID, messageID, senderID, body, messageReply } = event;
 
     const react = (e) => {
       if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ═══ Extract text after trigger ═══ */
-    let rawText = (body || "").trim().toLowerCase();
+    /* ═══ Parse user text ═══ */
+    let userText = "";
+    let isReplyTrigger = false;
 
-    /* Find which trigger matched */
-    let matchedTrigger = null;
-    for (const t of TRIGGERS) {
-      if (rawText === t || rawText.startsWith(t + " ")) {
-        matchedTrigger = t;
-        break;
+    /* ═══ Case 1: Reply to bot's message ═══ */
+    if (messageReply && messageReply.messageID && isBotMsg(messageReply.messageID)) {
+      isReplyTrigger = true;
+      userText = (body || "").trim();
+
+      /* Strip trigger word if present */
+      const firstWord = userText.split(/\s+/)[0].toLowerCase();
+      if (TRIGGERS.includes(firstWord)) {
+        userText = userText.slice(firstWord.length).trim();
       }
     }
 
-    let userText = "";
-    if (matchedTrigger) {
-      userText = (body || "").slice(matchedTrigger.length).trim();
-    } else {
-      userText = args.join(" ").trim();
+    /* ═══ Case 2: Trigger word at start ═══ */
+    if (!isReplyTrigger) {
+      const lower = (body || "").trim().toLowerCase();
+
+      /* Find which trigger matched */
+      let matched = null;
+      for (const t of TRIGGERS) {
+        if (lower === t || lower.startsWith(t + " ")) {
+          matched = t;
+          break;
+        }
+      }
+
+      if (!matched) {
+        /* Not a trigger — check args */
+        userText = args.join(" ").trim();
+      } else {
+        userText = (body || "").slice(matched.length).trim();
+      }
     }
 
-    /* ═══ Empty trigger — cute greeting ═══ */
+    /* ═══ Empty text → cute greeting ═══ */
     if (!userText) {
       const greetings = [
-        "😚",
-        "🫣",
-        "Yes Mia here 😍",
-        "Bolo jan 🐥",
-        "Ki hoise?",
-        "Hmm bolo? 💕",
-        "Ami achi 🥰"
+        "Hmm? 🥰",
+        "Bolo na 😊",
+        "Ki holo? 🤭",
+        "Yes bolo 💕",
+        "Ami achi 🥺",
+        "Ji bolo?",
+        "Hmm? ✨",
+        "Bolo ki bolbe"
       ];
       react("💕");
+      const delay = 600 + Math.random() * 800;
+      await sleep(delay);
+
       return api.sendMessage(
         greetings[Math.floor(Math.random() * greetings.length)],
-        threadID
+        threadID,
+        (err, info) => {
+          if (!err && info && info.messageID) {
+            storeBotMsg(info.messageID, threadID, senderID);
+          }
+        }
       );
     }
 
@@ -118,15 +198,36 @@ module.exports = {
 
     react("💬");
 
+    /* ═══ Get user name ═══ */
+    let userName = "User";
     try {
-      const reply = await getReply(userText);
-      react("😚");
-      return api.sendMessage(reply, threadID);
-    } catch (e) {
-      console.log("[baby] error:", e.message);
-      react("❌");
-      return api.sendMessage("🥺 Ektu pore try koro jan", threadID);
+      const ui = await api.getUserInfo(senderID);
+      if (ui && ui[senderID] && ui[senderID].name) {
+        userName = ui[senderID].name.split(" ")[0];
+      }
+    } catch (_) {}
+
+    /* ═══ Generate reply ═══ */
+    let reply;
+    try {
+      reply = await getAIReply(userText, userName);
+    } catch (_) {
+      reply = FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
     }
+
+    /* ═══ Natural delay (0.8-2s) ═══ */
+    const delay = 800 + Math.random() * 1200;
+    await sleep(delay);
+
+    /* ═══ Send + store messageID ═══ */
+    api.sendMessage(reply, threadID, (err, info) => {
+      if (err || !info || !info.messageID) {
+        react("❌");
+        return;
+      }
+      storeBotMsg(info.messageID, threadID, senderID);
+      react("😚");
+    });
   }
 };
 
