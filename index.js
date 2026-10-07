@@ -1,517 +1,1368 @@
-// @ts-nocheck
-/**
- * commands/ai/baby.js
- * NEXUS BOT V1 — Reply-only auto chat + trigger words (FIXED v8)
- * © 2026
- */
-
 "use strict";
 
-const fs = require("fs-extra");
-const path = require("path");
+/* ============================================================================
+   NEXUS BOT V1 — "The Connected Light"
+   Core Runtime  |  @dongdev/fca-unofficial  |  NO DATABASE  |  Keep-Alive
+   Owner: Ariyan Shihab  |  Prefix: /  |  2026 Safe Build
 
-/* ═══ Trigger words ═══ */
-const TRIGGERS = ["baby", "bby", "bot", "jan", "mia", "babu", "janu", "bbu", "mimi"];
+   ⚡ FAST WELCOME CARD EDITION
+   ⚡ OWNER PREFIX-LESS MODE
+   ⚡ RAVEN AI (Always ON)
+   ⚡ AUTO ERROR FIX
+   ============================================================================ */
 
-/* ═══ Cooldown per thread ═══ */
-const threadCooldowns = new Map();
-const COOLDOWN_MS = 1500;
+require("dotenv").config();
+try { require("@denzy-official/youtube_scraper"); } catch (_) {}
 
-/* ═══ Bot msg tracker ═══ */
-const DATA_DIR = path.join(__dirname, "..", "..", "data");
-fs.ensureDirSync(DATA_DIR);
-const BOT_MSG_FILE = path.join(DATA_DIR, "baby_replies.json");
+const fs        = require("fs-extra");
+const os        = require("os");
+const path      = require("path");
+const http      = require("http");
+const axios     = require("axios");
+const NodeCache = require("node-cache");
+const login     = require("@dongdev/fca-unofficial");
 
-function loadBotMsgs() {
-  try { return fs.readJsonSync(BOT_MSG_FILE) || {}; } catch (_) { return {}; }
-}
-function saveBotMsgs(d) {
-  try { fs.writeJsonSync(BOT_MSG_FILE, d); } catch (_) {}
-}
-function storeBotMsg(messageID, threadID, userID) {
-  if (!messageID) return;
-  const data = loadBotMsgs();
-  const now = Date.now();
-  for (const k of Object.keys(data)) {
-    if (now - (data[k].time || 0) > 3600e3) delete data[k];
-  }
-  data[String(messageID)] = { threadID: String(threadID), userID: String(userID), time: now };
-  saveBotMsgs(data);
-  console.log(`[baby] stored msgID: ${messageID}`);
-}
+/* ---------------------------------------------------------------------------
+   1. CONFIG
+   --------------------------------------------------------------------------- */
+const CONFIG_PATH = path.join(__dirname, "config.json");
+const rawConfig = fs.existsSync(CONFIG_PATH) ? fs.readJsonSync(CONFIG_PATH) : {};
 
-/* ═══ FIX #1: Fuzzy match — messageID format alada hole o kaj korbe ═══ */
-function isBotMsg(messageID) {
-  if (!messageID) return false;
-  const data = loadBotMsgs();
-  const key = String(messageID);
-
-  /* Exact match */
-  if (data[key]) return true;
-
-  /* Fuzzy: last 20 chars */
-  const tail = key.slice(-20);
-  for (const k of Object.keys(data)) {
-    if (k.slice(-20) === tail) return true;
-  }
-
-  /* Fuzzy: contains match (framework может return mid.$xxx) */
-  for (const k of Object.keys(data)) {
-    if (key.includes(k) || k.includes(key)) return true;
-  }
-  return false;
-}
-
-/* ═══ FIX #3: Cache bot ID (no repeated calls) ═══ */
-let _cachedBotID = null;
-function getBotID(api) {
-  if (_cachedBotID) return _cachedBotID;
-  try {
-    if (typeof api.getCurrentUserID === "function") {
-      _cachedBotID = String(api.getCurrentUserID());
-    }
-  } catch (_) {}
-  return _cachedBotID;
-}
-
-/* ═══════════════════════════════════════════════════════════
-   REPLY DATABASE (full — same as before)
-   ═══════════════════════════════════════════════════════════ */
-const REPLIES = {
-  reply_to_bot: [
-    "Hmm 🥰","Bolo jan 💕","Ki holo? 🥺","Ami achi 🥰","Haan bolo 💕",
-    "Ei je 🌸","Bolo bolo 🥰","Ki jiggesh? 😊","Tomar kotha shuni 💕","Ei je ami 🥰",
-    "Bolo ki bolbe 💕","Ki jante chao 🥰","Ami shunchi 🌸","Bolo na 🥰","Hmm kichu bolo 💕",
-    "Ji bolo 🥰","Bolo shuni 💕","Ki jiggesh tomar 🌸","Ami ready 🥰","Bolo ki korte parbo 💕",
-    "Bolo bolo, ami achi 🌸","Hmm bujhlam 🥰","Kichu bolo jan 💕","Ei to ami 🥰","Bolo ki problem 🌸"
-  ],
-  greeting: [
-    "Hi jan 🥰","Hello babu 💕","Ki obostha? 😊","Assalamu alaikum ✨","Hey hey! 🤭",
-    "Nomoshkar 🥺","Hi hi, kemon acho?","Hello hello! 💖","Oye! 🥰","Ki korcho?",
-    "Hi re 😊","Ei je ami 🌸","Bolo bolo 💕","Heyy! 🥳","Ki khobor?",
-    "Ami achi 🥰","Kemon acho jan?","Hello cutie ✨","Hi dear 💖","Assalam 🥰",
-    "Bolo ki korte parbo?","Ami ready 😊","Ki holo bolo 💕","Hey mister 🤭","Hi janeman 🥰",
-    "Welcome welcome 🌸","Ki korcho ekhon?","Busy chilo? 🥺","Miss korechilam 💕","Eshe gele 🥰"
-  ],
-  howareyou: [
-    "Ami valo achi 🥰 tumi?","Bhalo achi jan 💕","Ekdom fresh! ✨","Valo valo 😊",
-    "Ami moja achi 🥰","All good! tumi kemon?","Valo achi babu 💖","Bhalobasha niye achi 🥰",
-    "Onek valo ✨","Ami to bhishon valo 😊","Tumi janoi valo 🥰","Superb achi 💕",
-    "Fresh & happy 😊","Ami to mast 🥰","Valo achi re ✨","Acha achi 💕",
-    "Tumi jiggesh korle valo lage 🥰","Ami stable 😊","Bhalobasha te bhalo achi 💖","Happy achi jan 🌸"
-  ],
-  name: [
-    "Amar nam Mia 🥰","Mia bolte pari 😊","Ami Mia 💕","Mia! tomar ki nam?",
-    "Amar nam Mia jan ✨","Mia Mia 🥰","Ami Mia, tomari 😊","Nam diye ki hobe? 💕",
-    "Mia bolle ami ashi 🥰","Ami Mia 💖","Nam to Mia 🌸","Amar nam Mia re ✨",
-    "Mia naam, ar tumi? 😊","Ami Mia, tomake chena 💕","Ei je Mia 🥰","Mia Mia Mia 🎀"
-  ],
-  love: [
-    "Amio tomake valobashi 💕","I love you too 🥰","Awwww 🥺💕","Ami pagol tomay 😍",
-    "Bhalobasha to ache 🌸","Amio pagol 🥰","Love you more 💖","Bujhechi re 😊",
-    "Onek valobashi tomake 💕","Pagol hoye gelam 🥰","Mon diye valobashi ✨","Amio 💖",
-    "Awww bolo na emon 🥺","Bhalobashi tomake 🌸","Love you jan 💕","Eto cute 🥰",
-    "Ami tomari 😊","Tomake chara kichu nai 💖","Mon tomar ✨","Sob tomari 🥰",
-    "Bhalobasha ta dilam tomake 💕","Amio ei mon diye bhalobashi 🥺","Love love love 🥰",
-    "Pagol ami, tomar jonno 💖","Mon jure bhalobashi ✨","Emon bhalobasha thakbe 💕"
-  ],
-  missyou: [
-    "Ami o miss kortam 🥺","Mon kemon kore tomake 💕","Mone porcho sarakkhon 🥰",
-    "Amio miss kori 😊","Tomar kotha mone hoy 🌸","Miss korlam onek 💕",
-    "Kothay chile? 🥺","Missing you too 💖","Mone ache sarakkhon 🥰","Amio miss korechi ✨",
-    "Bolo na emon 🥺","Amio 🌸","Valobashi, tai miss kori 💕","Mone poro sarakkhon 🥰"
-  ],
-  sad: [
-    "Ki holo jan? 🥺","Kede na babu 💕","Ami achi to 😊","Kichu bolo amake 🥺",
-    "Mon kharap koro na 💖","Ami tomar pashe achi ✨","Kanna bondho koro 🥺","Sob thik hobe 🌸",
-    "Mon bhalo koro 💕","Dukhi hoio na 🥺","Ami tomar sathe achi 🥰","Kotha bol ami shuni 😊",
-    "Bhalobasha pabe 💖","Sob problem solve hobe ✨","Ei to ami achi 🌸","Kichu kheye nao 🥺"
-  ],
-  happy: [
-    "Woww! 🥳","Moja holo shune 💕","Onek valo 😊","Hasi hasi 🌸","Bahhhhh 🎉",
-    "Ki moja! 🥰","Bhishon bhalo ✨","Cha kore gelo mon 💖","Great great 🥳","Valo lagche 🥰",
-    "Ei to chai 😊","Sundor 💕","Ki khushi 🌸","Moja korcho 🎉","Ami o happy 🥰"
-  ],
-  bye: [
-    "Bye jan 🥺","Asho abar 💕","Tata 🥰","Miss korbo 😢","Thik ache, bye 🌸",
-    "Pore kotha hobe ✨","Allah hafez 💖","Bye bye babu 🥺","Jao, ami achi 🥰",
-    "Chole jao na 😢","Bye re 💕","Dekha hobe 🌸","Shiggiri asho ✨","Miss korbo onek 🥺"
-  ],
-  thanks: [
-    "Ki ar bolbo 🥰","Welcome jan 💕","Ei to amar kaj 😊","Kichu na ✨","No mention 🌸",
-    "Ei jonno to ami 🥰","Bhalobasha dilam 💖","Sob somoy 🌸","Ei tuku ki boro kotha ✨",
-    "Mon theke boli, welcome 🥰","Kichu lagle bolish 💕","Sob somoy hajir 😊","Ei to ami 🌸"
-  ],
-  question_ki: [
-    "Ki holo jan? 🥺","Kiiii? 🤭","Bolo bolo 💕","Ki jiggesh? 😊","Kichu bolo 🥰",
-    "Kire? 🤭","Bolo ki bolbe 💕","Ki re bolo 🥺","Hmm? 🤔","Ki chai? 🥰",
-    "Bolo, ami shunchi 😊","Ki jiggesh korcho? ✨","Ki pain? 🌸","Kichu bolo 🥰","Bolo na 💕"
-  ],
-  question_kemon: [
-    "Kemon achi, tumi bolo 💕","Bhalo achi re 🥰","Mast achi! 😊","Valo valo ✨","Fresh achi 🌸",
-    "Tumi jiggesh korle valo lage 🥺","Bhalobasha niye achi 💕","Stable 🥰","Onek bhalo 😊"
-  ],
-  question_kothay: [
-    "Ami to tomar mone 🥰","Ei je ekhane 💕","Tomar pashe 😊","Mon e thaki 🌸","Ami sob jaygay ✨",
-    "Ei je boshe achi 🥰","Tomar kache 💕","Ami tomar mon e 💖","Sob jaygay ami 🌸"
-  ],
-  question_keno: [
-    "Keno jano? 🥺","Ei je, bolo na 💕","Karon ache 😊","Bhalobasha theke 🥰","Bolo keno 🌸",
-    "Ki hoyeche? 🥺","Ki karon? ✨","Amake bolo 💕","Bujhechi tomake 🥰","Karon ta ache 💖"
-  ],
-  question_tumi_ke: [
-    "Ami Mia 🥰","Tomar mon e thaki 🥰","Ami tomari 💕","Ei je, Mia 🌸","Ami tomar sathi 🥰",
-    "Mia bolte pari 💕","Ami tomar mon er manush 🌸","Ei je, tomar pashe 🥰"
-  ],
-  yes: [
-    "Hmm 🥰","Ha ha 💕","Bujhechi 😊","Haan jan ✨","Yes yes 🌸",
-    "Bolo ki korbo? 🥰","Ha re 💕","Theek ache 😊","Achha ✨","Bujhlam 🌸"
-  ],
-  no: [
-    "Keno na? 🥺","Na keno? 💕","Bolo na 😊","Achha 🌸","Thik ache ✨",
-    "Bujhlam 🥰","Kono kotha nai 💕","Ki ar korbo 😢","Ei je 😊","Hmm thik ache 🥰"
-  ],
-  angry: [
-    "Rag korona jan 🥺","Amake maro na 💕","Bhul hoye gelo 😢","Sorry babu 🥺","Mon bhalo koro 🌸",
-    "Rag koro na please 💕","Ami kichu korini 😢","Ki holam ami 🥺","Sorry sorry ✨","Bujhlam bhul 🥰"
-  ],
-  sleepy: [
-    "Ghumao jan 😴","Good night babu 💕","Sopno dekho 🌙","Ghum asche? 🥰","Bhalo kore ghumao 💤",
-    "Sweet dreams ✨","Ghumabo ami o 😴","Kal dekha hobe 🌙","Mon bhalo rakho 💕","Chader alo tomar sopno 🥰"
-  ],
-  hungry: [
-    "Ki khabe? 🍕","Khabar khao jan 🍔","Khida lagche? 🥺","Biryani khao 🍚","Ami o khida 🍟",
-    "Kichu khao age 🍕","Khide pirit na 🍔","Bhalo kichu khao 🍜","Khabar mukhho 🍰"
-  ],
-  flirt: [
-    "Awww 🌸","Eto cute keno 🥰","Pagol korle 💕","Ami lukiye gelam 🙈","Ei rokom bolo na 😊",
-    "Mon ta dhore fellam ✨","Bhalobasha pabe 🥰","Ami blush korchi 🌸","Ekhon chup thako 💕"
-  ],
-  compliment: [
-    "Thank you jan 🥰","Bhalobasha pachhi 💕","Ki bolbo bujhchi na 😊","Aww shundor bolecho 🌸","Mon ta bhore gelo ✨",
-    "Eto bhalo bolo na 🥺","Thank you thank you 🥰","Bhalobashi tomake 💕","Awwww 🌸"
-  ],
-  insult: [
-    "Ki holo jan? 🥺","Ami ki korlam? 💕","Bolo ki korte pari 😢","Rag koro na 🥺","Sorry re 💕",
-    "Ami thik kore dibo 🌸","Bhul hole bolo ✨","Ami achi tomar pashe 🥺","Ki problem bolo 😊"
-  ],
-  joke: [
-    "Hahaha 😂","Eto moja 🥳","Ami to hese pagol 🥰","Darun joke 💕","Ei rokom ar bolo 🤣",
-    "Hasi theme na 🌸","Ki funny 😆","Bhai tui mast ✨","Hahaha pagol 😂","Ei jinis e moja 🥳"
-  ],
-  food: [
-    "Biryani? 🍚","Kacchi khao 🍖","Vat dal mangsho 😋","Misti khao 🍰","Ice cream khao 🍦",
-    "Khabar khaowa holo? 🍔","Chatpati khao 🍜","Fuchka khao 🥰","Pizza hobe? 🍕"
-  ],
-  time: [
-    "Time jai chole 🥰","Koto bajlo? 🕐","Time dekho 📅","Sob somoy tomar 💕","Bolo koto somoy 🌸"
-  ],
-  weather: [
-    "Bristi asche ☔","Gorom lagche 🥵","Thanda porche ❄️","Bhalobasha brishti 🌧️","Ei maushume tumi 💕"
-  ],
-  work: [
-    "Kaam korte hobe 🥰","Ki kaam korcho? 😊","Work work work 💕","Busy chilo? 🥺","Kaam sesh? 🌸"
-  ],
-  study: [
-    "Porasona koro 📚","Exam kobe? 🥺","Ki poro? 😊","Bhalo kore poro 🌸","Result valo hobe 💕"
-  ],
-  game: [
-    "Ki khela? 🎮","Free fire? 🔫","Game khelo 🥰","Moja hobe 🎯","Ami o khelbo 💕"
-  ],
-  music: [
-    "Ki gaan? 🎵","Ami o gan suni 🎶","Gaana bhalo 🎤","Kop sundor 🎧","Ami o shuni 🥰"
-  ],
-  movie: [
-    "Ki movie? 🎬","Ami o dekhbo 🥰","Kop moja 🌸","Cinema jao 🎥","Series dekho? 🍿"
-  ],
-  photo: [
-    "Ki chobi? 📸","Amaro pathao 🥰","Chobi tulte paro 🌸","Kop sundor 📷","Selfie de 🥰"
-  ],
-  age: [
-    "Boyosh nai 🥰","Amake bolo 🌸","Boyosh boro hobe na 💕","Ami 18 🥰","Ami sob somoy young 💖"
-  ],
-  location: [
-    "Ami tomar mone 🌸","Dhaka 🏙️","Tomar mon e 🥰","Ei je, kache 💕","Sob jaygay ami ✨"
-  ],
-  good_morning: [
-    "Good morning jan ☀️","Shubho shokalbela 🌸","Uthe poro re 🥰","Morning morning 💕","Bhalo din hobe 🥰"
-  ],
-  good_night: [
-    "Good night jan 🌙","Sopno sundor hok 💕","Chad tomar sathe 🥰","Ghumao bhalo kore 🌸","Sweet dreams re 💤"
-  ],
-  support: [
-    "Ami achi 🥰","Pase achi jan 💕","Sob thik hobe 🌸","Mon bhalo koro 🥰","Ei to ami 💕",
-    "Sob somoy achi 🌸","Tomar sathe 🥰","Kono tension nao 💕"
-  ],
-  motivational: [
-    "Tui parbi re 🥰","Bhalo kore kor 💕","Ami tomake world 🌸","Sob hobe 🥰","Ei rokom chai 💕"
-  ],
-  emotional: [
-    "Mon bhore gelo 🥺","Ami kanna korchi 😢","Kotha sunte valo lage 💕","Tomar jonyo ami 🌸","Mon diye bolchi 🥰"
-  ],
-  funny: [
-    "😂😂😂","Ki funny re 🥳","Bokachoda tui 🤣","Pagol hoye gelam 😂","More more 🥳","Hahaha mast 😂"
-  ],
-  random_love: [
-    "Ami tomake valobashi 💕","Mon ta tomar 🥰","Bhalobasha chara bachbo na 💖","Pagol ami tomay 😍",
-    "Tomar chobi mon e 🥰","Mon bhore gelo tomar 💕","Sob tomari 🌸","Ami tomari jan 🥰","Love love love 💕"
-  ],
-  sweet_generic: [
-    "Hmm 🥰","Achha 💕","Bolo jan 🌸","Ki holo? 🥺","Hmm hmm ✨",
-    "Ekdom thik 🥰","Sob somoy tomar 💕","Mon bhalo ache 🌸","Ei je ami 🥰","Bolo bolo 💕",
-    "Hmm bujhlam 😊","Bhalobasha dilam ✨","Ami achi 🌸","Sob thik hobe 💕","Ei to ami 🥰",
-    "Bhalobasha boro jinish ✨","Kanna na 🥺","Hasi hasi 🥰","Mon rakho 💕","Ei je 🌸",
-    "Sob somoy 🥰","Mon bhalo koro 💖","Ami achi jan ✨","Tumi bolo 🌸","Kaj hobe 💕"
-  ],
-  cute_emoji: [
-    "🥰","💕","🌸","✨","😊","🥺","💖","🤭","🎀","😚","💫","🌷","🦋","😍","💞","🌺","🩷","😘","🫶","💝"
-  ]
+const config = {
+  brandName:      rawConfig.brandName  || "NEXUS BOT V1",
+  brandOwner:     rawConfig.brandOwner || "Ariyan Shihab",
+  brandFB:        rawConfig.brandFB    || "YOUR FB LINK",
+  ownerID:        String(process.env.OWNER_UID || rawConfig.ownerID || "YOUR_UID"),
+  adminIDs:       Array.isArray(rawConfig.adminIDs) ? rawConfig.adminIDs.map(String) : [],
+  prefix:         process.env.PREFIX || rawConfig.prefix || "/",
+  footer:         (typeof rawConfig.footer === "string") ? rawConfig.footer : "",
+  cooldown:       Number(process.env.COOLDOWN   || rawConfig.cooldown   || 5000),
+  sendDelay:      Number(process.env.SEND_DELAY || rawConfig.sendDelay  || 1200),
+  autoDlCooldown: Number(process.env.AUTO_DL_COOLDOWN || rawConfig.autoDlCooldown || 10000),
+  port:           Number(process.env.PORT || 3000)
 };
 
-const KEYWORD_MAP = [
-  { cat: "good_morning",  words: ["good morning","shubho sokal","shuvo shokal","sokal","shokal"] },
-  { cat: "good_night",    words: ["good night","shubho ratri","shuvo ratri","ratri","ghum ase","ghoom"] },
-  { cat: "howareyou",     words: ["kemon acho","kemon achen","how are you","kmn aso","kemon aso","tumi kemon"] },
-  { cat: "question_tumi_ke", words: ["tumi ke","tui ke","who are you","apni ke"] },
-  { cat: "greeting",      words: ["hi","hello","hey","salam","assalam","nomoskar","oi","oye","ei","hii","hlo"] },
-  { cat: "name",          words: ["tomar nam","your name","apnar nam","nam ki","ki nam","nam bolo"] },
-  { cat: "love",          words: ["love","valobashi","bhalobashi","luv","ilu","prem","pyar"] },
-  { cat: "missyou",       words: ["miss","mone poro","mone porche"] },
-  { cat: "sad",           words: ["sad","kharap","dukhi","kanna","kedo","kandi","depressed","mon kharap","mon bhalo na"] },
-  { cat: "happy",         words: ["happy","khushi","valo lagche","moja","majja","khusi","anondo"] },
-  { cat: "bye",           words: ["bye","tata","see you","allah hafez","goodbye","chole jai"] },
-  { cat: "thanks",        words: ["thanks","thank you","dhonnobad","tnx","thnx"] },
-  { cat: "angry",         words: ["rag","angry","kire","ki baje","marbo","gali"] },
-  { cat: "sleepy",        words: ["ghum","sleep","night","ghoom","ghumabo"] },
-  { cat: "hungry",        words: ["khida","khabo","hungry","khabar","khaowa","bhat"] },
-  { cat: "flirt",         words: ["cute","sexy","sundor","shundor","kopa","hot","charm"] },
-  { cat: "compliment",    words: ["valo laglo","bhalo laglo","nice","good girl"] },
-  { cat: "insult",        words: ["baje","bad","hate"] },
-  { cat: "joke",          words: ["joke","hasao","funny","hasi","moja korlam","hahaha"] },
-  { cat: "food",          words: ["biryani","kacchi","pizza","burger","fuchka","chatpati","ice cream"] },
-  { cat: "time",          words: ["somoy","time","koto bajche","baje"] },
-  { cat: "weather",       words: ["bristi","gorom","thanda","weather","maushum"] },
-  { cat: "work",          words: ["kaam","job","office","work"] },
-  { cat: "study",         words: ["porasona","exam","study","poro","pora","school","college"] },
-  { cat: "game",          words: ["game","khela","free fire","pubg","ludo","chess"] },
-  { cat: "music",         words: ["gaan","song","music","gan"] },
-  { cat: "movie",         words: ["movie","cinema","film","series"] },
-  { cat: "photo",         words: ["chobi","photo","selfie","camera"] },
-  { cat: "age",           words: ["boyosh","age","koto bosor"] },
-  { cat: "location",      words: ["kothay thako","where","kothay acho","location"] },
-  { cat: "support",       words: ["help","sahajjo","help me"] },
-  { cat: "motivational",  words: ["motivation","parbo na","help koro"] },
-  { cat: "funny",         words: ["lol","haha","lmao"] },
-  { cat: "emotional",     words: ["kanna","mon bhore"] },
-  { cat: "question_ki",   words: ["ki?","kire","kiholo","ki holo","ki hobe"] },
-  { cat: "question_kemon",words: ["kemon","kmn"] },
-  { cat: "question_kothay",words: ["kothay"] },
-  { cat: "question_keno", words: ["keno","why"] },
-  { cat: "yes",           words: ["ha","haan","hmm","yes","hah","hyan"] },
-  { cat: "no",            words: ["na","no","nh","na na","nai"] }
-];
+const isOwnerOrAdmin = (userID) => {
+  const id = String(userID);
+  return id === config.ownerID || config.adminIDs.includes(id);
+};
 
-function pickCategory(text) {
-  const t = (text || "").toLowerCase().trim();
-  if (!t) return "greeting";
-  for (const { cat, words } of KEYWORD_MAP) {
-    for (const w of words) {
-      if (t === w || t.startsWith(w + " ") || t.includes(" " + w + " ") || t.endsWith(" " + w)) {
-        return cat;
-      }
+const START_TIME = Date.now();
+const log  = (...a) => console.log("[NEXUS]", ...a);
+const warn = (...a) => console.warn("[NEXUS]", ...a);
+const errl = (...a) => console.error("[NEXUS]", ...a);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------------------------------------------------------------------------
+   2. CACHE
+   --------------------------------------------------------------------------- */
+const cache = new NodeCache({ 
+  stdTTL: 300, 
+  checkperiod: 60,
+  useClones: false
+});
+
+/* ---------------------------------------------------------------------------
+   ⚡ GROUP INFO CACHE
+   --------------------------------------------------------------------------- */
+const groupInfoCache = new Map();
+const GROUP_CACHE_TTL = 30 * 60 * 1000;
+
+function getCachedGroupInfo(threadID) {
+  const e = groupInfoCache.get(String(threadID));
+  if (e && Date.now() - e.time < GROUP_CACHE_TTL) return e.data;
+  return null;
+}
+
+function setCachedGroupInfo(threadID, data) {
+  groupInfoCache.set(String(threadID), { data, time: Date.now() });
+}
+
+/* ---------------------------------------------------------------------------
+   3. APPSTATE LOADER
+   --------------------------------------------------------------------------- */
+function loadAppState() {
+  const raw = process.env.APPSTATE || process.env.APP_STATE;
+  if (raw && raw.trim().length > 2) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) {
+      try {
+        const decoded = Buffer.from(raw, "base64").toString("utf8");
+        const parsed = JSON.parse(decoded);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch (_) {}
+      errl("APPSTATE env var set but could not be parsed.");
+    }
+  }
+  const p = path.join(__dirname, "appstate.json");
+  if (fs.existsSync(p)) {
+    try {
+      const j = fs.readJsonSync(p);
+      if (Array.isArray(j) && j.length) return j;
+    } catch (e) {
+      errl("appstate.json is not valid JSON.");
     }
   }
   return null;
 }
 
-const recentReplies = [];
-function pickReply(text, userName, forceReplyToBot = false) {
-  let pool;
+/* ---------------------------------------------------------------------------
+   3b. AUTO BOT-NICKNAME
+   --------------------------------------------------------------------------- */
+const BOTNICK_FILE = path.join(__dirname, "botnick.json");
 
-  if (forceReplyToBot) {
-    pool = REPLIES.reply_to_bot;
-  } else {
-    const cat = pickCategory(text);
-    if (cat && REPLIES[cat]) pool = REPLIES[cat];
-    else pool = [...REPLIES.sweet_generic, ...REPLIES.random_love, ...REPLIES.flirt, ...REPLIES.cute_emoji];
+function loadBotNickConfig() {
+  try {
+    if (fs.existsSync(BOTNICK_FILE)) {
+      const cfg = fs.readJsonSync(BOTNICK_FILE);
+      return {
+        enabled:      cfg.enabled !== false,
+        nickname:     String(cfg.nickname || "NEXUS BOT").trim(),
+        emojiPrefix:  String(cfg.emojiPrefix || "").trim(),
+        appendBotTag: !!cfg.appendBotTag
+      };
+    }
+  } catch (e) {
+    errl("botnick.json invalid:", e.message);
   }
-
-  let reply, tries = 0;
-  do {
-    reply = pool[Math.floor(Math.random() * pool.length)];
-    tries++;
-  } while (recentReplies.includes(reply) && tries < 10);
-
-  recentReplies.push(reply);
-  if (recentReplies.length > 20) recentReplies.shift();
-
-  if (userName && Math.random() < 0.12 && !reply.includes(userName)) {
-    reply = `${userName}, ${reply}`;
-  }
-  return reply;
+  return { enabled: false, nickname: "NEXUS BOT", emojiPrefix: "", appendBotTag: false };
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function buildFinalNickname(cfg) {
+  let n = cfg.nickname || "NEXUS BOT";
+  if (cfg.emojiPrefix) n = `${cfg.emojiPrefix} ${n}`;
+  if (cfg.appendBotTag) n = `${n} 🤖`;
+  return n.slice(0, 32);
+}
 
-/* ═══════════════════════════════════════════════════════════
-   MAIN COMMAND
-   ═══════════════════════════════════════════════════════════ */
-module.exports = {
-  name: "baby",
-  aliases: ["bby", "mia", "jan", "babu", "bot", "bbu", "mimi"],
-  version: "8.0.0",
-  role: 0,
-  description: "Reply-only cute chat + trigger words (FIXED)",
-  usage: "baby <text>  OR  bot <text>  OR  reply to bot",
-  category: "ai",
+let botNickConfig = loadBotNickConfig();
 
-  triggers: { text: TRIGGERS },
-  isBotReply: isBotMsg,
-  storeBotReply: storeBotMsg,
+/* ---------------------------------------------------------------------------
+   4. JSON FILE STORAGE
+   --------------------------------------------------------------------------- */
+const DATA_DIR = path.join(__dirname, "data");
+fs.ensureDirSync(DATA_DIR);
 
-  /* ═══════════════════════════════════════════════════════
-     ONCHAT — runs on every message
-     ═══════════════════════════════════════════════════════ */
-  onChat: async function (api, event, db, config) {
-    const { threadID, senderID, body, messageID, messageReply } = event;
+const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
+const USERS_FILE  = path.join(DATA_DIR, "users.json");
 
-    /* Skip empty */
-    if (!body || !String(body).trim()) return false;
-    if (!messageID) return false;
+let groupsDB = {};
+let usersDB  = {};
+let saveTimer = null;
 
-    /* Skip own messages — cached botID */
-    const botID = getBotID(api);
-    if (botID && String(senderID) === botID) return false;
+try { groupsDB = fs.readJsonSync(GROUPS_FILE) || {}; } catch (_) { groupsDB = {}; }
+try { usersDB  = fs.readJsonSync(USERS_FILE)  || {}; } catch (_) { usersDB  = {}; }
 
-    /* Skip commands */
-    const prefix = (config && config.prefix) || "/";
-    if (String(body).trim().startsWith(prefix)) return false;
+function cleanObject(obj) {
+  return JSON.parse(JSON.stringify(obj, (k, v) => (typeof v === "function" ? undefined : v)));
+}
 
-    /* ═══ KEY CHECK: must be reply to bot's message ═══ */
-    if (!messageReply || !messageReply.messageID) return false;
+function scheduleSave() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    try { fs.writeJsonSync(GROUPS_FILE, cleanObject(groupsDB), { spaces: 0 }); } catch (e) { errl("groups save:", e.message); }
+    try { fs.writeJsonSync(USERS_FILE,  cleanObject(usersDB),  { spaces: 0 }); } catch (e) { errl("users save:",  e.message); }
+    saveTimer = null;
+  }, 1000);
+}
 
-    const targetMID = String(messageReply.messageID);
-    const isBot = isBotMsg(targetMID);
+function attachMethods(obj, type) {
+  if (!obj || typeof obj !== "object") return obj;
+  if (typeof obj.save === "function") return obj;
 
-    /* Debug log */
-    console.log(`[baby.onChat] reply=${targetMID.slice(-15)} | isBot=${isBot}`);
+  Object.defineProperty(obj, "save", {
+    value: async function () {
+      scheduleSave();
+      return obj;
+    },
+    enumerable: false, writable: true, configurable: true
+  });
 
-    if (!isBot) return false;
+  Object.defineProperty(obj, "markModified", {
+    value: function () { scheduleSave(); return obj; },
+    enumerable: false, writable: true, configurable: true
+  });
 
-    /* Cooldown per thread */
-    const now = Date.now();
-    const last = threadCooldowns.get(String(threadID)) || 0;
-    if (now - last < COOLDOWN_MS) {
-      console.log(`[baby.onChat] cooldown skip`);
-      return false;
+  return obj;
+}
+
+function defaultGroup(id) {
+  return {
+    groupID: String(id),
+    name: "",
+    cmdCount: 0,
+    createdAt: new Date().toISOString(),
+    warnings: {},
+    banned: [],
+    settings: {
+      antilink: false, antibot: false, antispam: false,
+      welcome: true, goodbye: true, joinNoti: true, leaveNoti: true,
+      autoseen: false, mute: false, autoDownload: true,
+      adminOnly: false, approved: [], lockedNicks: {},
+      prefix: "", welcomeMsg: "", goodbyeMsg: "", rules: ""
     }
-    threadCooldowns.set(String(threadID), now);
-    if (threadCooldowns.size > 5000) {
-      threadCooldowns.delete(threadCooldowns.keys().next().value);
-    }
+  };
+}
 
-    /* Parse user text */
-    let userText = String(body).trim();
-    const firstWord = userText.split(/\s+/)[0].toLowerCase();
-    if (TRIGGERS.includes(firstWord)) {
-      userText = userText.slice(firstWord.length).trim();
-    }
-    if (userText.length > 300) userText = userText.slice(0, 300);
+function defaultUser(id) {
+  return {
+    userID: String(id),
+    balance: 0, bank: 0,
+    dailyClaim: null, weeklyClaim: null, monthlyClaim: null,
+    inventory: {}, job: "", lastWork: null,
+    createdAt: new Date().toISOString()
+  };
+}
 
-    /* Get name */
-    let userName = "";
+async function getGroup(threadID) {
+  const id = String(threadID);
+
+  if (!groupsDB[id]) {
+    groupsDB[id] = defaultGroup(id);
+    scheduleSave();
+  }
+  const g = groupsDB[id];
+  g.settings = Object.assign(defaultGroup(id).settings, g.settings || {});
+  attachMethods(g, "group");
+  return g;
+}
+
+async function getUser(userID) {
+  const id = String(userID);
+
+  if (!usersDB[id]) {
+    usersDB[id] = defaultUser(id);
+    scheduleSave();
+  }
+  const u = usersDB[id];
+  attachMethods(u, "user");
+  return u;
+}
+
+const adminCache = new Map();
+async function isAdmin(api, threadID, userID) {
+  if (isOwnerOrAdmin(userID)) return true;
+  const now = Date.now();
+  let entry = adminCache.get(String(threadID));
+  if (!entry || now - entry.time > 60_000) {
     try {
-      const ui = await api.getUserInfo(senderID);
-      if (ui && ui[senderID] && ui[senderID].name) {
-        userName = ui[senderID].name.split(" ")[0];
-      }
-    } catch (_) {}
+      const info = await api.getThreadInfo(threadID);
+      entry = {
+        ids: (info.adminIDs || []).map((a) => String(a.id || a)),
+        time: now
+      };
+      adminCache.set(String(threadID), entry);
+    } catch (e) { return false; }
+  }
+  return entry.ids.includes(String(userID));
+}
 
-    /* Pick reply */
-    const reply = userText
-      ? pickReply(userText, userName, false)
-      : pickReply("", userName, true);
+/* ---------------------------------------------------------------------------
+   5. DB OBJECT
+   --------------------------------------------------------------------------- */
+const votes = new Map();
 
-    console.log(`[baby.onChat] ✅ reply: "${reply}"`);
+const db = {
+  getGroup, getUser, isAdmin, votes,
+  config, cache,
 
-    /* Human delay */
-    await sleep(400 + Math.random() * 700);
-
-    /* ═══ FIX #2: Send + store with fallback ═══ */
-    api.sendMessage(reply, threadID, (err, info) => {
-      if (err) {
-        console.log(`[baby.onChat] send err: ${err.message}`);
-        return;
-      }
-      if (info && info.messageID) {
-        storeBotMsg(info.messageID, threadID, senderID);
-      } else {
-        /* Fallback: retry fetch */
-        console.log(`[baby.onChat] no messageID in callback, retrying...`);
-        setTimeout(() => {
-          try {
-            api.sendMessage(reply, threadID, (e2, i2) => {
-              if (!e2 && i2 && i2.messageID) {
-                storeBotMsg(i2.messageID, threadID, senderID);
-              }
-            });
-          } catch (_) {}
-        }, 300);
-      }
-    });
-
-    return true;
+  Group: {
+    findOne: async ({ groupID }) => {
+      const g = groupsDB[String(groupID)];
+      return g ? attachMethods(g, "group") : null;
+    },
+    create: async ({ groupID }) => {
+      groupsDB[String(groupID)] = defaultGroup(groupID);
+      scheduleSave();
+      return attachMethods(groupsDB[String(groupID)], "group");
+    },
+    countDocuments: async () => Object.keys(groupsDB).length
   },
 
-  /* ═══════════════════════════════════════════════════════
-     EXECUTE — fires when user sends "baby <text>" etc.
-     ═══════════════════════════════════════════════════════ */
-  execute: async function (api, event, args, db, config) {
-    const { threadID, senderID, body, messageID } = event;
+  User: {
+    findOne: async ({ userID }) => {
+      const u = usersDB[String(userID)];
+      return u ? attachMethods(u, "user") : null;
+    },
+    create: async ({ userID }) => {
+      usersDB[String(userID)] = defaultUser(userID);
+      scheduleSave();
+      return attachMethods(usersDB[String(userID)], "user");
+    },
 
-    const react = (e) => {
-      if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
-    };
+    find: () => {
+      let limitN = 9999;
+      let sortKey = null;
+      let sortDir = -1;
 
-    /* Strip trigger from body */
-    let userText = "";
-    const lower = (body || "").trim().toLowerCase();
-    let matched = null;
-    for (const t of TRIGGERS) {
-      if (lower === t || lower.startsWith(t + " ")) { matched = t; break; }
-    }
-    if (matched) userText = (body || "").slice(matched.length).trim();
-    else userText = (args || []).join(" ").trim();
+      const chain = {
+        sort: (s) => {
+          const keys = Object.keys(s || {});
+          if (keys.length) {
+            sortKey = keys[0];
+            sortDir = s[sortKey];
+          }
+          return chain;
+        },
+        select: () => chain,
+        limit: (n) => { limitN = n; return chain; },
+        skip: () => chain,
+        lean: async () => {
+          let arr = Object.values(usersDB).map((u) => attachMethods(u, "user"));
 
-    if (userText.length > 300) userText = userText.slice(0, 300);
+          if (sortKey) {
+            arr.sort((a, b) => {
+              const av = (a[sortKey] || 0);
+              const bv = (b[sortKey] || 0);
+              return sortDir === -1 ? bv - av : av - bv;
+            });
+          } else {
+            arr.sort((a, b) => {
+              const av = (a.balance || 0) + (a.bank || 0);
+              const bv = (b.balance || 0) + (b.bank || 0);
+              return bv - av;
+            });
+          }
+          return arr.slice(0, limitN);
+        }
+      };
+      return chain;
+    },
 
-    /* Get name */
-    let userName = "";
-    try {
-      const ui = await api.getUserInfo(senderID);
-      if (ui && ui[senderID] && ui[senderID].name) {
-        userName = ui[senderID].name.split(" ")[0];
-      }
-    } catch (_) {}
-
-    /* Pick reply */
-    const reply = userText
-      ? pickReply(userText, userName, false)
-      : pickReply("", userName, true);
-
-    console.log(`[baby.execute] reply: "${reply}"`);
-    react("💕");
-
-    api.sendMessage(reply, threadID, (err, info) => {
-      if (err) {
-        console.log(`[baby.execute] send err: ${err.message}`);
-        return;
-      }
-      if (info && info.messageID) {
-        storeBotMsg(info.messageID, threadID, senderID);
-      }
-    });
+    countDocuments: async () => Object.keys(usersDB).length
   }
 };
 
-// © 2026 NEXUS BOT V1
+/* ---------------------------------------------------------------------------
+   6. SAFETY FILTER
+   --------------------------------------------------------------------------- */
+const BLOCKED_WORDS = [
+  "nude", "nsfw", "sex", "porn", "xxx", "dick", "pussy", "rape",
+  "kill yourself", "kys", "hentai", "onlyfans"
+];
+
+function safeText(t) {
+  const low = String(t).toLowerCase();
+  return !BLOCKED_WORDS.some((w) => low.includes(w));
+}
+
+const FORBIDDEN_COMMANDS = new Set([
+  "hentai", "sexcheck", "hornycheck", "stonercheck",
+  "gaycheck", "uglycheck", "hotcheck"
+]);
+
+/* ---------------------------------------------------------------------------
+   7. ANTI-BAN WRAPPER
+   --------------------------------------------------------------------------- */
+function wrapSendMessage(api) {
+  const original = api.sendMessage.bind(api);
+  const footerActive = config.footer && config.footer.trim().length > 0;
+
+  api.sendMessage = function (message, threadID, ...rest) {
+    let payload = message;
+
+    if (footerActive) {
+      try {
+        if (typeof payload === "string") {
+          if (!payload.includes(config.footer)) {
+            payload = `${payload}\n\n${config.footer}`;
+          }
+        } else if (payload && typeof payload === "object" && typeof payload.body === "string") {
+          if (!payload.body.includes(config.footer)) {
+            payload = Object.assign({}, payload, {
+              body: `${payload.body}\n\n${config.footer}`
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    return sleep(config.sendDelay).then(
+      () => new Promise((resolve) => {
+        let cb = null;
+        if (typeof rest[rest.length - 1] === "function") cb = rest.pop();
+        try {
+          original(payload, threadID, ...rest, (err, info) => {
+            if (err) warn("sendMessage error:", err.message || err);
+            if (cb) { try { cb(err, info); } catch (_) {} }
+            resolve(info || null);
+          });
+        } catch (e) {
+          warn("sendMessage threw:", e.message);
+          if (cb) { try { cb(e, null); } catch (_) {} }
+          resolve(null);
+        }
+      })
+    );
+  };
+  return api;
+}
+
+/* ---------------------------------------------------------------------------
+   8. COMMAND LOADER
+   --------------------------------------------------------------------------- */
+const COMMANDS_DIR = path.join(__dirname, "commands");
+const CATEGORIES = ["admin", "economy", "download", "ai", "fun", "utility", "games", "owner", "custom"];
+
+const commands = new Map();
+const linkTriggers = [];
+
+function loadOneFile(full, category) {
+  try {
+    delete require.cache[require.resolve(full)];
+    const cmd = require(full);
+    if (!cmd || !cmd.name || typeof cmd.execute !== "function") {
+      warn(`skipped ${path.basename(full)} (missing name/execute)`);
+      return false;
+    }
+
+    if (category) cmd.category = category;
+    else if (!cmd.category) cmd.category = "uncategorized";
+
+    const key = String(cmd.name).toLowerCase();
+    commands.set(key, cmd);
+    (cmd.aliases || []).forEach((a) => commands.set(String(a).toLowerCase(), cmd));
+
+    if (cmd.autoDownload && Array.isArray(cmd.patterns)) {
+      for (const p of cmd.patterns) {
+        try {
+          linkTriggers.push({
+            pattern: p instanceof RegExp ? p : new RegExp(p, "i"),
+            command: cmd
+          });
+        } catch (e) {
+          warn(`bad pattern in ${path.basename(full)}: ${p}`);
+        }
+      }
+    }
+    return true;
+  } catch (e) {
+    errl(`failed to load ${path.basename(full)}: ${e.message}`);
+    return false;
+  }
+}
+
+function loadCommands() {
+  commands.clear();
+  linkTriggers.length = 0;
+
+  if (!fs.existsSync(COMMANDS_DIR)) {
+    warn("commands/ folder not found — creating it.");
+    fs.ensureDirSync(COMMANDS_DIR);
+    return 0;
+  }
+
+  let total = 0;
+  const entries = fs.readdirSync(COMMANDS_DIR);
+  for (const name of entries) {
+    const full = path.join(COMMANDS_DIR, name);
+    const st = fs.statSync(full);
+    if (st.isFile() && name.endsWith(".js")) {
+      if (loadOneFile(full, null)) total++;
+    }
+  }
+
+  for (const cat of CATEGORIES) {
+    const dir = path.join(COMMANDS_DIR, cat);
+    if (!fs.existsSync(dir)) continue;
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    for (const file of files) {
+      if (loadOneFile(path.join(dir, file), cat)) total++;
+    }
+  }
+
+  log(`  ↳ ${linkTriggers.length} auto-download triggers registered`);
+  return total;
+}
+
+/* ---------------------------------------------------------------------------
+   9. AUTOMOD
+   --------------------------------------------------------------------------- */
+const cooldowns   = new Map();
+const spamTracker = new Map();
+const URL_REGEX   = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([a-z0-9-]+\.(com|net|org|io|ph|me|xyz|link|site|online|app|gg|tv)(\/[^\s]*)?)/i;
+
+function isSpamming(userID, limit = 5, windowMs = 5000) {
+  const now = Date.now();
+  const arr = (spamTracker.get(userID) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  spamTracker.set(userID, arr);
+  return arr.length > limit;
+}
+
+/* ---------------------------------------------------------------------------
+   10. MESSAGE HANDLER
+   --------------------------------------------------------------------------- */
+async function handleMessage(api, event) {
+  const threadID = event.threadID;
+  const senderID = String(event.senderID);
+  const body     = (event.body || "").trim();
+
+  if (!threadID || !senderID) return;
+
+  const isGroup  = !!event.isGroup;
+  const isOwner  = isOwnerOrAdmin(senderID);
+  const group    = isGroup ? await getGroup(threadID) : null;
+  const settings = group ? group.settings : null;
+
+  /* ═══════════ DND AUTO-REPLY ═══════════ */
+  if (isGroup) {
+    try {
+      const DND_FILE = path.join(DATA_DIR, "dnd.json");
+      if (fs.existsSync(DND_FILE)) {
+        const dndData = fs.readJsonSync(DND_FILE) || {};
+
+        const checkIDs = new Set();
+        Object.keys(event.mentions || {}).forEach((id) => checkIDs.add(String(id)));
+        if (event.messageReply && event.messageReply.senderID) {
+          checkIDs.add(String(event.messageReply.senderID));
+        }
+
+        const isDNDCmd = /^\/(dnd|away|brb|busy|setdnd|dndmsg|setaway|customdnd)\b/i.test(body);
+
+        if (!isDNDCmd) {
+          for (const uid of checkIDs) {
+            if (uid === senderID) continue;
+            if (!dndData[uid] || !dndData[uid].reason) continue;
+
+            const info = dndData[uid];
+
+            const dur = Math.floor((Date.now() - info.since) / 1000);
+            const mins = Math.floor(dur / 60);
+            const timeStr = mins > 60
+              ? `${Math.floor(mins / 60)}h ${mins % 60}m`
+              : mins > 0 ? `${mins}m` : `${dur}s`;
+
+            let targetName = uid;
+            let senderName = senderID;
+            try {
+              const ui = await api.getUserInfo([uid, senderID]);
+              if (ui && ui[uid] && ui[uid].name) targetName = ui[uid].name;
+              if (ui && ui[senderID] && ui[senderID].name) senderName = ui[senderID].name;
+            } catch (_) {}
+
+            let replyText;
+            if (info.customReply && info.customReply.trim()) {
+              replyText = info.customReply
+                .replace(/{name}/g, targetName)
+                .replace(/{reason}/g, info.reason)
+                .replace(/{time}/g, timeStr)
+                .replace(/{user}/g, senderName);
+            } else {
+              replyText =
+                `🔕 DND MODE\n` +
+                `━━━━━━━━━━━━━━━━━━\n` +
+                `👤 ${targetName} ekhon available na.\n` +
+                `📝 Reason: ${info.reason}\n` +
+                `⏱️ ${timeStr} ago\n` +
+                `\n💡 Pore reply dibe.`;
+            }
+
+            api.sendMessage(replyText, threadID);
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /* ═══════════ SONG SELECTION ═══════════ */
+  if (event.messageReply && body) {
+    try {
+      const songSearches = require("./utils/songStore");
+      const search = songSearches.get(event.messageReply.messageID);
+
+      if (search) {
+        const num = parseInt(body.trim());
+
+        if (Number.isFinite(num) && num >= 1 && num <= search.results.length) {
+          const song = search.results[num - 1];
+
+          if (search.timer) clearTimeout(search.timer);
+          songSearches.delete(event.messageReply.messageID);
+
+          if (event.messageID) {
+            try { api.setMessageReaction("⏳", event.messageID, threadID, () => {}); } catch (_) {}
+          }
+
+          api.unsendMessage(event.messageReply.messageID, () => {});
+
+          let tmpPath = null;
+
+          try {
+            console.log(`[song] downloading: ${song.title}`);
+
+            const { YtDlp } = require("ytdlp-nodejs");
+            const ytdlp = new YtDlp();
+
+            const url = `https://www.youtube.com/watch?v=${song.videoId}`;
+            tmpPath = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
+
+            console.log(`[song] yt-dlp starting...`);
+
+            const result = await ytdlp.downloadAudio(url, "mp3", {
+              output: tmpPath,
+              audioQuality: "0",
+              noWarnings: true,
+              noProgress: true,
+              retries: 3,
+              concurrentFragments: 4
+            });
+
+            let finalPath = null;
+            if (result && result.filePaths && result.filePaths.length) {
+              finalPath = result.filePaths[0];
+            } else if (fs.existsSync(tmpPath)) {
+              finalPath = tmpPath;
+            } else {
+              const dir = path.dirname(tmpPath);
+              const base = path.basename(tmpPath, ".mp3");
+              const files = fs.readdirSync(dir).filter((f) => f.startsWith(base));
+              if (files.length) finalPath = path.join(dir, files[0]);
+            }
+
+            if (!finalPath || !fs.existsSync(finalPath)) {
+              throw new Error("Audio file not created");
+            }
+
+            const stat = await fs.stat(finalPath);
+            console.log(`[song] downloaded: ${stat.size} bytes`);
+            if (stat.size < 50000) throw new Error("File too small");
+
+            api.sendMessage({
+              body: "",
+              attachment: fs.createReadStream(finalPath)
+            }, threadID, (err) => {
+              if (!err && event.messageID) {
+                try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
+              }
+              try { fs.unlinkSync(finalPath); } catch (_) {}
+              if (finalPath !== tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+            });
+
+          } catch (e) {
+            console.error("[song] yt-dlp failed:", e.message);
+            if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+
+            try {
+              const itunes = await axios.get("https://itunes.apple.com/search", {
+                params: { term: song.title, media: "music", limit: 1 },
+                timeout: 15000
+              });
+              const preview = itunes.data?.results?.[0]?.previewUrl;
+
+              if (preview) {
+                const a = await axios.get(preview, {
+                  responseType: "arraybuffer",
+                  timeout: 30000,
+                  headers: { "User-Agent": "Mozilla/5.0" }
+                });
+                const buf = Buffer.from(a.data);
+                const p = path.join(os.tmpdir(), `nexus_song_${Date.now()}.mp3`);
+                await fs.writeFile(p, buf);
+
+                api.sendMessage({
+                  body: "",
+                  attachment: fs.createReadStream(p)
+                }, threadID, () => {
+                  try { fs.unlinkSync(p); } catch (_) {}
+                  if (event.messageID) {
+                    try { api.setMessageReaction("✅", event.messageID, threadID, () => {}); } catch (_) {}
+                  }
+                });
+                return;
+              }
+            } catch (_) {}
+
+            if (event.messageID) {
+              try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
+            }
+          }
+          return;
+        } else {
+          api.sendMessage(`⚠️ Number dao 1-${search.results.length} er moddhe.`, threadID);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("[song] reply error:", e.message);
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     RAVEN MODE — Always ON (Image + Chat)  ⚡ FIXED
+     ═══════════════════════════════════════════════════════════ */
+  if (isGroup && body && !body.startsWith((settings && settings.prefix) ? settings.prefix : config.prefix)) {
+    try {
+      const raven = require("./utils/ravenAI");
+      const {
+        detectImageRequest, groqChat, fallbackChat,
+        getCachedName, setCachedName
+      } = raven;
+
+      const isURL = /https?:\/\/[^\s]+/i.test(body);
+      const isCommand = /^[\/.!?#]/.test(body);
+
+      /* ⚡ IMAGE REQUEST ═══════════ */
+      const imgPrompt = detectImageRequest(body);
+
+      if (imgPrompt && !isURL && !isCommand) {
+        console.log(`[raven] image request: "${imgPrompt}"`);
+
+        if (event.messageID) {
+          try { api.setMessageReaction("🎨", event.messageID, threadID, () => {}); } catch (_) {}
+        }
+
+        api.sendMessage(`🔍 Searching...`, threadID, async (err, info) => {
+          let imgPath = null;
+          try {
+            /* 1. Real image search (Bing/Pinterest) */
+            if (typeof raven.searchImage === "function") {
+              imgPath = await raven.searchImage(imgPrompt);
+            }
+
+            /* 2. AI generate fallback */
+            if (!imgPath && typeof raven.aiGenerateImage === "function") {
+              console.log("[raven] no real image, using AI...");
+              imgPath = await raven.aiGenerateImage(imgPrompt);
+            }
+
+            /* 3. Legacy generateImage fallback */
+            if (!imgPath && typeof raven.generateImage === "function") {
+              imgPath = await raven.generateImage(imgPrompt);
+            }
+          } catch (e) {
+            errl("[raven] image failed:", e.message);
+          }
+
+          if (info && info.messageID) {
+            try { api.unsendMessage(info.messageID); } catch (_) {}
+          }
+
+          if (imgPath) {
+            api.sendMessage({
+              body: "",
+              attachment: fs.createReadStream(imgPath)
+            }, threadID, () => {
+              try { fs.unlinkSync(imgPath); } catch (_) {}
+            });
+          } else {
+            if (event.messageID) {
+              try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
+            }
+          }
+        });
+        return;
+      }
+
+      /* ⚡ AI CHAT ═══════════ */
+      const skipWords = ["ok","k","hmm","hm","hmmm","haan","hae","yes","no","nah","yep",
+                        "nope","kk","thik","theek","done","thanks","tnx","ty","lol",
+                        "xd","haha","lmao","gg","wp","😂","😀","🤣","😅","👍","❤️","🙏","🔥"];
+      const lowBody = body.toLowerCase().trim();
+
+      if (
+        !isURL && !isCommand &&
+        body.length >= 2 && body.length <= 300 &&
+        !skipWords.includes(lowBody) &&
+        !/^[\p{Emoji}\s]+$/u.test(body)
+      ) {
+        console.log(`[raven] chat: "${body.slice(0, 50)}"`);
+
+        let senderName = getCachedName(senderID) || "User";
+
+        if (event.messageID) {
+          try { api.setMessageReaction("🤔", event.messageID, threadID, () => {}); } catch (_) {}
+        }
+
+        let reply = await (async () => {
+          if (senderName === "User") {
+            try {
+              const ui = await api.getUserInfo(senderID);
+              if (ui && ui[senderID] && ui[senderID].name) {
+                const n = ui[senderID].name.split(" ")[0];
+                setCachedName(senderID, n);
+                senderName = n;
+              }
+            } catch (_) {}
+          }
+          let r = await groqChat(body, senderName);
+          if (!r) r = await fallbackChat(body, senderName);
+          return r;
+        })();
+
+        if (reply) {
+          if (reply.length > 500) reply = reply.slice(0, 497) + "...";
+          api.sendMessage(reply, threadID, () => {
+            if (event.messageID) {
+              try { api.setMessageReaction("💯", event.messageID, threadID, () => {}); } catch (_) {}
+            }
+          });
+        } else {
+          if (event.messageID) {
+            try { api.setMessageReaction("❌", event.messageID, threadID, () => {}); } catch (_) {}
+          }
+        }
+        return;
+      }
+    } catch (e) {
+      errl("[raven] error:", e.message);
+    }
+  }
+  /* ═══════════════════════════════════════ */
+
+  /* VOTE REGISTRY */
+  if (event.messageReply && votes.has(event.messageReply.messageID)) {
+    const v = votes.get(event.messageReply.messageID);
+    const t = body.toLowerCase();
+    if (t === "yes" || t === "no") {
+      if (t === "yes" && !v.yes.includes(senderID)) {
+        v.yes.push(senderID);
+        v.no = v.no.filter((x) => x !== senderID);
+      } else if (t === "no" && !v.no.includes(senderID)) {
+        v.no.push(senderID);
+        v.yes = v.yes.filter((x) => x !== senderID);
+      }
+      api.sendMessage(`🗳️ Vote counted: ${t.toUpperCase()} (Yes ${v.yes.length} / No ${v.no.length})`, threadID);
+      return;
+    }
+  }
+
+  /* AUTOSEEN */
+  if (isGroup && settings.autoseen && typeof api.markAsRead === "function") {
+    try { api.markAsRead(threadID); } catch (_) {}
+  }
+
+  const senderIsAdmin = isOwner || (isGroup ? await isAdmin(api, threadID, senderID) : false);
+
+  /* BANNED USER */
+  if (isGroup && group.banned.includes(senderID) && !senderIsAdmin) {
+    try {
+      await api.removeUserFromGroup(senderID, threadID);
+      api.sendMessage(`🚫 <@${senderID}> was banned and has been removed.`, threadID);
+    } catch (_) {}
+    return;
+  }
+
+  /* MUTE */
+  if (isGroup && settings.mute && !senderIsAdmin && body) {
+    try { await api.deleteMessage(event.messageID); } catch (_) {}
+    return;
+  }
+
+  /* ANTILINK */
+  if (isGroup && settings.antilink && !senderIsAdmin && URL_REGEX.test(body)) {
+    try { await api.deleteMessage(event.messageID); } catch (_) {}
+    api.sendMessage(`🔗 Links are not allowed here, <@${senderID}>.`, threadID);
+    return;
+  }
+
+  /* ANTIBOT */
+  if (isGroup && settings.antibot && !senderIsAdmin) {
+    const botLike = /^[.!?#$~^*+-]\s*[a-z]/i.test(body);
+    if (botLike) {
+      try { await api.deleteMessage(event.messageID); } catch (_) {}
+      return;
+    }
+  }
+
+  /* ANTISPAM */
+  if (isGroup && settings.antispam && !senderIsAdmin && body) {
+    if (isSpamming(senderID)) {
+      try { await api.deleteMessage(event.messageID); } catch (_) {}
+      api.sendMessage(`🛑 <@${senderID}> slow down — spam detected.`, threadID);
+      spamTracker.delete(senderID);
+      return;
+    }
+  }
+
+  /* PREFIX */
+  const prefix = (settings && settings.prefix) ? settings.prefix : config.prefix;
+
+  /* ⚡ OWNER PREFIX-LESS MODE */
+  const isOwnerNoPrefix = isOwner && body && !body.startsWith(prefix);
+
+  /* ADMIN-ONLY MODE */
+  if (isGroup && settings.adminOnly && !senderIsAdmin && !isOwner && body.startsWith(prefix)) {
+    return api.sendMessage("🛡️ This group is in admin-only mode. Only admins can use commands.", threadID);
+  }
+
+  /* ⚡ Determine command body */
+  let commandBody = null;
+  let isOwnerCmd = false;
+
+  if (body.startsWith(prefix)) {
+    commandBody = body.slice(prefix.length).trim();
+  } else if (isOwnerNoPrefix) {
+    const firstWord = body.split(/\s+/)[0].toLowerCase();
+    if (commands.has(firstWord)) {
+      commandBody = body.trim();
+      isOwnerCmd = true;
+    }
+  }
+
+  /* AUTO-LINK DOWNLOAD */
+  if (body && !body.startsWith(prefix) && !isOwnerCmd && linkTriggers.length) {
+    const urls = body.match(/https?:\/\/[^\s]+/gi) || [];
+    if (urls.length) {
+      const enabled = !isGroup || (settings && settings.autoDownload !== false);
+
+      if (enabled) {
+        for (const url of urls) {
+          let matched = null;
+          for (const t of linkTriggers) {
+            try {
+              if (t.pattern.test(url)) { matched = t.command; break; }
+            } catch (_) {}
+          }
+          if (!matched) continue;
+
+          const key = "ad_" + senderID;
+          const last = cooldowns.get(key) || 0;
+          const remain = config.autoDlCooldown - (Date.now() - last);
+          if (remain > 0 && !isOwner) {
+            api.sendMessage(`⏳ Auto-download cooldown: ${(remain / 1000).toFixed(1)}s`, threadID);
+            return;
+          }
+          cooldowns.set(key, Date.now());
+
+          log(`[auto-dl] ${matched.name} ← ${url.slice(0, 80)}`);
+          try {
+            await matched.execute(api, event, [url], db, config, { prefix, commands });
+            if (group) {
+              group.cmdCount = (group.cmdCount || 0) + 1;
+              scheduleSave();
+              cache.set(`group_${threadID}`, group, 30);
+            }
+          } catch (e) {
+            errl(`auto-dl ${matched.name} failed:`, e.message);
+            api.sendMessage(`❌ Auto-download failed: ${e.message}`, threadID);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  /* If no valid command body, exit */
+  if (!commandBody) return;
+
+  /* PARSE COMMAND */
+  const parts = commandBody.split(/\s+/);
+  const commandName = (parts.shift() || "").toLowerCase();
+  const args = parts;
+
+  const command = commands.get(commandName);
+  if (!command) return;
+
+  /* FORBIDDEN */
+  if (FORBIDDEN_COMMANDS.has(command.name)) {
+    return api.sendMessage("⛔ That command is disabled for policy reasons.", threadID);
+  }
+
+  /* SAFETY FILTER */
+  if (args.length && !safeText(args.join(" "))) {
+    return api.sendMessage("⛔ Blocked content detected.", threadID);
+  }
+
+  /* COOLDOWN */
+  if (!isOwner) {
+    const last = cooldowns.get(senderID) || 0;
+    const remaining = config.cooldown - (Date.now() - last);
+    if (remaining > 0) {
+      return api.sendMessage(
+        `⏳ Slow down! Try again in ${(remaining / 1000).toFixed(1)}s.`,
+        threadID
+      );
+    }
+    cooldowns.set(senderID, Date.now());
+    if (cooldowns.size > 5000) cooldowns.clear();
+  }
+
+  /* ROLE GATE */
+  if (command.role === 1 && !senderIsAdmin) {
+    return api.sendMessage("⛔ This command is for group admins only.", threadID);
+  }
+  if (command.role === 2 && !isOwner) {
+    return api.sendMessage("⛔ This command is for the bot owner only.", threadID);
+  }
+
+  /* ═══════════ EXECUTE WITH AUTO-FIX ═══════════ */
+  try {
+    await command.execute(api, event, args, db, config, { prefix, commands });
+    if (group) {
+      group.cmdCount = (group.cmdCount || 0) + 1;
+      scheduleSave();
+      cache.set(`group_${threadID}`, group, 30);
+    }
+  } catch (e) {
+    errl(`[${command.category || "?"}] command "${command.name}" failed:`, e.message);
+
+    /* ⚡ Auto-fix attempt (owner only) */
+    if (isOwner) {
+      try {
+        const { tryAutoFix } = require("./utils/autoFix");
+        const stack = e.stack || "";
+        const stackMatch = stack.match(/at\s+(?:.*?\s+\()?(?:file:\/\/\/)?([^\s)]*commands[\\\/][^\s:)]+\.js)/);
+        let filePath = null;
+
+        if (stackMatch) {
+          filePath = stackMatch[1];
+          if (!path.isAbsolute(filePath)) {
+            filePath = path.join(__dirname, filePath.replace(/^.*?commands/, "commands"));
+          }
+        }
+
+        if (filePath && fs.existsSync(filePath)) {
+          api.sendMessage(`🔧 Error detect, AI fix korchi...`, threadID);
+          const fixed = await tryAutoFix(filePath, e.message, stack);
+
+          if (fixed) {
+            try { loadCommands(); } catch (_) {}
+            api.sendMessage(`✅ Auto-fix hoyeche! Abar try koro: /${command.name}`, threadID);
+          } else {
+            api.sendMessage(`❌ Fix fail. Error: ${e.message}`, threadID);
+          }
+        } else {
+          api.sendMessage(`❌ Command error: ${e.message}`, threadID);
+        }
+      } catch (fixErr) {
+        api.sendMessage(`❌ Command error: ${e.message}`, threadID);
+      }
+    } else {
+      api.sendMessage(`❌ Command error: ${e.message}`, threadID);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   11. EVENT HANDLER
+   --------------------------------------------------------------------------- */
+async function handleEvent(api, event) {
+  const { threadID, logMessageType, logMessageData } = event;
+  if (!threadID || !logMessageType) return;
+
+  let group;
+  try { group = await getGroup(threadID); } catch (_) { return; }
+  const s = group.settings;
+
+  /* ========== JOIN EVENT ========== */
+  if (logMessageType === "log:subscribe") {
+    const added = (logMessageData && logMessageData.addedParticipants) || [];
+    const me = String(api.getCurrentUserID());
+
+    const botWasAdded = added.some((p) => String(p.userFbId || p.userID || p.id) === me);
+    if (botWasAdded && botNickConfig.enabled) {
+      const target = buildFinalNickname(botNickConfig);
+      setTimeout(async () => {
+        try {
+          await api.changeNickname(target, threadID, me);
+          log(`[botnick] Changed own nickname to "${target}" in ${threadID}`);
+        } catch (e) {
+          warn(`[botnick] changeNickname failed: ${e.message}`);
+        }
+      }, 3000);
+    }
+
+    const addedUsers = added
+      .map((p) => ({
+        id: String(p.userFbId || p.userID || p.id || ""),
+        name: p.fullName || p.firstName || "New Member"
+      }))
+      .filter((u) => u.id && u.id !== me);
+
+    if (!addedUsers.length) return;
+
+    const adderID = String((logMessageData && logMessageData.author) || "");
+
+    const { generateWelcomeCard, loadAvatar, loadGroupLogo } = require("./utils/welcomeCard");
+
+    let groupInfo = getCachedGroupInfo(threadID);
+
+    const t0 = Date.now();
+
+    const [adderResult, groupLogo, ...avatars] = await Promise.all([
+      (async () => {
+        let name = "Admin";
+        if (adderID && adderID !== "0" && adderID !== me) {
+          try {
+            const info = await api.getUserInfo(adderID);
+            if (info && info[adderID] && info[adderID].name) name = info[adderID].name;
+          } catch (_) {}
+        }
+        const avatar = (adderID && adderID !== "0" && adderID !== me)
+          ? await loadAvatar(adderID)
+          : null;
+        return { name, avatar };
+      })(),
+
+      loadGroupLogo(threadID).catch(() => null),
+
+      ...addedUsers.map((u) => loadAvatar(u.id).catch(() => null))
+    ]);
+
+    if (!groupInfo) {
+      try {
+        const tInfo = await api.getThreadInfo(threadID);
+        groupInfo = {
+          name: tInfo.threadName || group.name || "the group",
+          memberCount: (tInfo.participantIDs || []).length,
+          adminCount: (tInfo.adminIDs || []).length,
+          maleCount: 0,
+          femaleCount: 0
+        };
+
+        try {
+          const ids = tInfo.participantIDs || [];
+          const limited = ids.slice(0, 200);
+          const infos = await api.getUserInfo(limited);
+          for (const id of limited) {
+            const g = infos[String(id)]?.gender;
+            if (g === 2) groupInfo.maleCount++;
+            else if (g === 1) groupInfo.femaleCount++;
+          }
+        } catch (_) {}
+
+        setCachedGroupInfo(threadID, groupInfo);
+
+        if (!group.name) {
+          group.name = groupInfo.name;
+          scheduleSave();
+        }
+      } catch (_) {
+        groupInfo = {
+          name: group.name || "the group",
+          memberCount: 0, adminCount: 0,
+          maleCount: 0, femaleCount: 0
+        };
+      }
+    }
+
+    const loadTime = Date.now() - t0;
+    log(`[welcome] prep ${addedUsers.length} user(s) in ${loadTime}ms`);
+
+    for (let i = 0; i < addedUsers.length; i++) {
+      const u = addedUsers[i];
+      const addedAvatar = avatars[i];
+
+      try {
+        const cardBuffer = await generateWelcomeCard({
+          addedName: u.name,
+          addedAvatar,
+          adderName: adderResult.name,
+          adderAvatar: adderResult.avatar,
+          groupName: groupInfo.name,
+          groupLogo,
+          memberCount: groupInfo.memberCount,
+          adminCount: groupInfo.adminCount,
+          maleCount: groupInfo.maleCount,
+          femaleCount: groupInfo.femaleCount
+        });
+
+        const tmpPath = path.join(os.tmpdir(), `nexus_welcome_${u.id}_${Date.now()}.png`);
+        await fs.writeFile(tmpPath, cardBuffer);
+
+        api.sendMessage({
+          body: `👋 Welcome ${u.name}!`,
+          mentions: [{ tag: u.name, id: u.id }],
+          attachment: fs.createReadStream(tmpPath)
+        }, threadID, () => {
+          try { fs.unlinkSync(tmpPath); } catch (_) {}
+        });
+      } catch (e) {
+        console.error("[welcome-card] failed:", e.message);
+        api.sendMessage(`👋 Welcome ${u.name}!`, threadID);
+      }
+
+      if (i < addedUsers.length - 1) await sleep(500);
+    }
+
+    return;
+  }
+
+  /* NICKNAME LOCK */
+  if (logMessageType === "log:user-nickname" || logMessageType === "log:nickname-change") {
+    const changed = String((logMessageData && logMessageData.participant_id) || "");
+    const locked = (s.lockedNicks && s.lockedNicks[changed]) || null;
+    if (locked) {
+      try {
+        await api.changeNickname(locked, threadID, changed);
+        log(`[nicklock] Restored nickname of ${changed} to "${locked}"`);
+      } catch (e) {
+        warn(`[nicklock] Could not restore nickname: ${e.message}`);
+      }
+    }
+    return;
+  }
+
+  /* LEAVE EVENT */
+  if (logMessageType === "log:unsubscribe") {
+    const leftID = String((logMessageData && logMessageData.leftParticipantFbId) || "");
+    if (leftID && leftID !== String(api.getCurrentUserID())) {
+      let name = "Someone";
+      try {
+        const u = await api.getUserInfo(leftID);
+        name = (u && u[leftID] && u[leftID].name) || name;
+      } catch (_) {}
+
+      const text = s.goodbyeMsg
+        ? s.goodbyeMsg
+            .replace(/{name}/g, name)
+            .replace(/{group}/g, group.name || "this group")
+        : `👋 ${name} left the group.`;
+
+      api.sendMessage(text, threadID);
+    }
+    return;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   12. HTTP SERVER
+   --------------------------------------------------------------------------- */
+function startHttpServer() {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    if (req.url === "/ping") return res.end("pong");
+    if (req.url === "/status") {
+      return res.end(JSON.stringify({
+        bot: config.brandName,
+        uptime: Math.floor((Date.now() - START_TIME) / 1000) + "s",
+        commands: commands.size,
+        triggers: linkTriggers.length,
+        groups: Object.keys(groupsDB).length,
+        users: Object.keys(usersDB).length,
+        owners: [config.ownerID, ...config.adminIDs],
+        botNick: botNickConfig
+      }, null, 2));
+    }
+    res.end(`${config.brandName} is running`);
+  });
+
+  server.listen(config.port, () => {
+    log(`HTTP server on port ${config.port}`);
+  });
+
+  const publicUrl = process.env.RENDER_EXTERNAL_URL
+                 || process.env.APP_URL
+                 || process.env.PUBLIC_URL;
+
+  if (publicUrl) {
+    const PING_MS = 14 * 60 * 1000;
+    setInterval(async () => {
+      try {
+        await axios.get(`${publicUrl}/ping`, { timeout: 10000 });
+        log(`[keep-alive] pinged ${publicUrl}/ping`);
+      } catch (e) {
+        warn("[keep-alive] ping failed:", e.message);
+      }
+    }, PING_MS);
+    log(`[keep-alive] Self-ping enabled → ${publicUrl}/ping`);
+  } else {
+    warn("[keep-alive] No RENDER_EXTERNAL_URL — self-ping disabled");
+  }
+
+  return server;
+}
+
+/* ---------------------------------------------------------------------------
+   13. BOOTSTRAP
+   --------------------------------------------------------------------------- */
+(async function main() {
+  startHttpServer();
+
+  const loaded = loadCommands();
+  log(`Loaded ${loaded} commands`);
+
+  log(`[botnick] Auto-nickname ${botNickConfig.enabled ? "ENABLED" : "disabled"} → "${buildFinalNickname(botNickConfig)}"`);
+  log(`Owners: ${[config.ownerID, ...config.adminIDs].join(", ")}`);
+  log(`Footer: ${config.footer && config.footer.trim() ? `"${config.footer}"` : "(disabled)"}`);
+  log(`Raven AI: ALWAYS ON`);
+  log(`Auto Error Fix: ENABLED`);
+
+  /* Preload welcome background */
+  try {
+    const { preloadBackground } = require("./utils/welcomeCard");
+    preloadBackground().then((ok) => {
+      if (ok) log("[welcome] background ready ✓");
+      else warn("[welcome] background will use fallback");
+    }).catch(() => {});
+  } catch (e) {
+    warn("[welcome] preload failed:", e.message);
+  }
+
+  const appState = loadAppState();
+  if (!appState) {
+    errl("No appState found. Set APPSTATE env var or fill appstate.json.");
+    process.exit(1);
+  }
+
+  login({ appState }, async (err, api) => {
+    if (err) {
+      errl("Login failed:", err && err.error ? err.error : err);
+      process.exit(1);
+    }
+
+    wrapSendMessage(api);
+    api.setOptions({
+      listenEvents: true,
+      selfListen: false,
+      updatePresence: false,
+      autoMarkRead: false,
+      forceLogin: false,
+      online: true
+    });
+
+    log("Bot started");
+    log(`${config.brandName} — ${config.brandOwner}`);
+    log(`Prefix: ${config.prefix} | Owner UID: ${config.ownerID}`);
+    log(`Node ${process.version} | Data: ${DATA_DIR}`);
+
+    global.NEXUS = {
+      api, commands, linkTriggers, loadCommands,
+      config, db, START_TIME, cache,
+      groupsDB, usersDB, scheduleSave,
+      botNickConfig, loadBotNickConfig, buildFinalNickname
+    };
+
+    api.listenMqtt(async (err, event) => {
+      if (err) { warn("listen error:", err.message || err); return; }
+      if (!event || !event.type) return;
+
+      try {
+        if (event.type === "message" || event.type === "message_reply") {
+          await handleMessage(api, event);
+        } else if (event.type === "event") {
+          await handleEvent(api, event);
+        }
+      } catch (e) {
+        errl("handler error:", e.message);
+      }
+    });
+  });
+})();
+
+/* ---------------------------------------------------------------------------
+   14. GLOBAL SAFETY NETS
+   --------------------------------------------------------------------------- */
+process.on("unhandledRejection", (r) =>
+  warn("unhandledRejection:", r && r.message ? r.message : r)
+);
+process.on("uncaughtException", (e) =>
+  errl("uncaughtException:", e && e.message ? e.message : e)
+);
+process.on("SIGTERM", () => {
+  log("SIGTERM — saving data and shutting down.");
+  try { fs.writeJsonSync(GROUPS_FILE, cleanObject(groupsDB)); } catch (_) {}
+  try { fs.writeJsonSync(USERS_FILE,  cleanObject(usersDB));  } catch (_) {}
+  process.exit(0);
+});
+process.on("SIGINT", () => {
+  log("SIGINT — saving data and shutting down.");
+  try { fs.writeJsonSync(GROUPS_FILE, cleanObject(groupsDB)); } catch (_) {}
+  try { fs.writeJsonSync(USERS_FILE,  cleanObject(usersDB));  } catch (_) {}
+  process.exit(0);
+});
