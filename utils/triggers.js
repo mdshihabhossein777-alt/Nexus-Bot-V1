@@ -1,6 +1,7 @@
+// @ts-nocheck
 /**
  * utils/triggers.js
- * NEXUS BOT V1 — Universal trigger registry + YTB handler
+ * NEXUS BOT V1 — Universal trigger registry + YTB handler + onChat
  * © 2026
  */
 
@@ -12,6 +13,25 @@
  */
 async function checkTriggers(api, event, db, config, commands, body, senderID) {
   const trimmed = (body || "").trim();
+
+  /* ═══════════════════════════════════════════════════════════
+     ONCHAT HANDLERS — runs on EVERY message (no prefix needed)
+     Commands can register cmd.onChat = async function(...)
+     If it returns true, we stop processing other triggers.
+     ═══════════════════════════════════════════════════════════ */
+  if (event.type === "message" || event.type === "message_reply") {
+    for (const [key, cmd] of commands) {
+      if (!cmd || typeof cmd.onChat !== "function") continue;
+      try {
+        const handled = await cmd.onChat(api, event, db, config);
+        if (handled === true) {
+          return true; /* onChat handled it — stop here */
+        }
+      } catch (e) {
+        console.log(`[onChat] ${cmd.name || key}: ${e.message}`);
+      }
+    }
+  }
 
   /* ═══════════════════════════════════════════════════════════
      YTB REPLY HANDLER — number reply diye YouTube download
