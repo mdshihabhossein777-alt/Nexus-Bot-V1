@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * commands/utility/uptime.js
- * NEXUS BOT V1 — Superfast uptime video with baked-in text
+ * NEXUS BOT V1 — Superfast uptime video with baked text
  * © 2026
  */
 
@@ -16,9 +16,9 @@ const assets = require("../../utils/assets");
 const { getFirstStart } = require("../../utils/projectAge");
 
 const VIDEO_NAME = "uptime.mp4";
-const MAX_DURATION = 13;      // second — video length cap
-const PRESET = "ultrafast";   // fastest ffmpeg preset
-const CRF = 32;               // higher = faster, smaller
+const MAX_DURATION = 13;
+const PRESET = "ultrafast";
+const CRF = 32;
 
 /* ═══ Format helpers ═══ */
 function fmtUptime(ms) {
@@ -60,7 +60,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/* ═══ Probe video dimensions (ffprobe) ═══ */
+/* ═══ Probe video dims ═══ */
 function probeDims(videoPath) {
   return new Promise((resolve) => {
     const ff = spawn("ffprobe", [
@@ -80,19 +80,17 @@ function probeDims(videoPath) {
   });
 }
 
-/* ═══ Render overlay PNG (all text info) ═══ */
+/* ═══ Render overlay PNG ═══ */
 function renderOverlay(W, H, data) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  /* Bottom box */
   const boxH = Math.round(H * 0.36);
   const boxY = H - boxH - Math.round(H * 0.03);
   const boxX = Math.round(W * 0.06);
   const boxW = W - boxX * 2;
   const radius = Math.round(W * 0.025);
 
-  /* Glow behind box */
   ctx.save();
   ctx.shadowColor = "rgba(255, 215, 0, 0.55)";
   ctx.shadowBlur = 40;
@@ -101,19 +99,17 @@ function renderOverlay(W, H, data) {
   ctx.fill();
   ctx.restore();
 
-  /* Gold border */
   ctx.save();
   const borderGrad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
-  borderGrad.addColorStop(0,    "#FFD700");
-  borderGrad.addColorStop(0.5,  "#ff69b4");
-  borderGrad.addColorStop(1,    "#00ffff");
+  borderGrad.addColorStop(0,   "#FFD700");
+  borderGrad.addColorStop(0.5, "#ff69b4");
+  borderGrad.addColorStop(1,   "#00ffff");
   ctx.strokeStyle = borderGrad;
   ctx.lineWidth = Math.max(2, W / 640);
   roundRect(ctx, boxX, boxY, boxW, boxH, radius);
   ctx.stroke();
   ctx.restore();
 
-  /* Center-aligned layout */
   const cx = W / 2;
   const baseY = boxY + boxH * 0.22;
 
@@ -121,7 +117,6 @@ function renderOverlay(W, H, data) {
     ctx.font = `${weight} ${size}px Arial, 'DejaVu Sans', sans-serif`;
   };
 
-  /* ── SESSION ── */
   setFont(Math.round(boxH * 0.11), "normal");
   ctx.fillStyle = "rgba(255, 215, 0, 0.75)";
   ctx.textAlign = "center";
@@ -134,12 +129,10 @@ function renderOverlay(W, H, data) {
   ctx.fillText(data.session, cx, baseY + boxH * 0.26);
   ctx.shadowBlur = 0;
 
-  /* ── Divider ── */
   const divY = baseY + boxH * 0.36;
   ctx.fillStyle = "rgba(255, 215, 0, 0.35)";
   ctx.fillRect(boxX + boxW * 0.15, divY, boxW * 0.7, Math.max(1, H / 720));
 
-  /* ── PROJECT ── */
   setFont(Math.round(boxH * 0.11), "normal");
   ctx.fillStyle = "rgba(0, 255, 255, 0.75)";
   ctx.fillText("P R O J E C T", cx, divY + boxH * 0.16);
@@ -151,7 +144,6 @@ function renderOverlay(W, H, data) {
   ctx.fillText(data.project, cx, divY + boxH * 0.42);
   ctx.shadowBlur = 0;
 
-  /* ── Bot name (bottom right) ── */
   setFont(Math.round(boxH * 0.10), "normal");
   ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
   ctx.textAlign = "right";
@@ -160,7 +152,7 @@ function renderOverlay(W, H, data) {
   return canvas.toBuffer("image/png");
 }
 
-/* ═══ ffmpeg overlay (single filter — fast) ═══ */
+/* ═══ ffmpeg overlay ═══ */
 function runFFmpeg(videoPath, overlayPath, outPath) {
   return new Promise((resolve, reject) => {
     const args = [
@@ -190,25 +182,16 @@ function runFFmpeg(videoPath, overlayPath, outPath) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MAIN COMMAND
+   MAIN COMMAND — NO checkTrigger (framework handles prefix)
    ═══════════════════════════════════════════════════════════ */
 module.exports = {
   name: "uptime",
   aliases: ["up", "runtime", "botup", "age"],
-  version: "3.0.0",
+  version: "3.1.0",
   role: 0,
   description: "Superfast uptime video with baked text",
   usage: "/uptime",
   category: "utility",
-
-  checkTrigger: function (body) {
-    if (!body) return false;
-    const t = body.trim().toLowerCase();
-    return (
-      t === "uptime" || t === "up" || t === "runtime" ||
-      t === "botup" || t === "age" || t.startsWith("uptime ")
-    );
-  },
 
   execute: async function (api, event, args, db, config) {
     const { threadID, messageID } = event;
@@ -217,14 +200,13 @@ module.exports = {
       if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
     };
 
+    console.log("[uptime] ▶ command triggered");
+
     react("⏳");
 
-    let srcPath = null;
-    let ovPath = null;
-    let outPath = null;
+    let srcPath = null, ovPath = null, outPath = null;
 
     try {
-      /* ═══ Times ═══ */
       const now = Date.now();
       const sessionStart = (global.NEXUS && global.NEXUS.START_TIME) || now;
       const sessionMs = now - sessionStart;
@@ -241,7 +223,6 @@ module.exports = {
         botName: config.brandName || "NEXUS BOT V1"
       };
 
-      /* ═══ Load video ═══ */
       const videoBuf = await assets.loadAsset(VIDEO_NAME);
       if (!videoBuf) {
         react("❌");
@@ -251,14 +232,12 @@ module.exports = {
       srcPath = path.join(os.tmpdir(), `upt_src_${Date.now()}.mp4`);
       await fs.writeFile(srcPath, videoBuf);
 
-      /* ═══ Probe dims + render overlay (parallel) ═══ */
       const dims = await probeDims(srcPath).catch(() => ({ w: 1280, h: 720 }));
       const overlayBuf = renderOverlay(dims.w, dims.h, data);
 
       ovPath = path.join(os.tmpdir(), `upt_ov_${Date.now()}.png`);
       await fs.writeFile(ovPath, overlayBuf);
 
-      /* ═══ FFmpeg overlay ═══ */
       outPath = path.join(os.tmpdir(), `upt_out_${Date.now()}.mp4`);
       await runFFmpeg(srcPath, ovPath, outPath);
 
@@ -266,7 +245,6 @@ module.exports = {
 
       react("⏱️");
 
-      /* ═══ Send (minimal caption) ═══ */
       api.sendMessage({
         body: "⏱️",
         attachment: fs.createReadStream(outPath)
