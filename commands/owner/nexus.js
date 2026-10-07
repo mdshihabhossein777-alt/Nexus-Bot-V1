@@ -10,7 +10,7 @@ const util = require("util");
 
 module.exports = {
   name: "nexus",
-  aliases: ["eval", "run", "exec", "js", "code"],
+  aliases: ["Dev", "run", "exec", "js", "code"],
   version: "1.0.0",
   role: 2,                         /* ⚡ Owner only */
   description: "Execute JavaScript (owner only)",
