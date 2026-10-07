@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * commands/owner/deploy.js
  * NEXUS BOT V1 — Deploy with live progress
@@ -9,15 +10,15 @@
 const axios = require("axios");
 
 /* ═══ Config ═══ */
-const POLL_INTERVAL = 4000;      // 4s between polls
-const MAX_WAIT_MS   = 5 * 60e3;  // give up after 5 min
+const POLL_INTERVAL = 4000;
+const MAX_WAIT_MS   = 5 * 60e3;
 const BAR_WIDTH     = 20;
 
-/* ═══ Progress bar builder ═══ */
+/* ═══ Progress bar ═══ */
 function progressBar(pct) {
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty  = BAR_WIDTH - filled;
-  return "█".repeat(Math.max(0, filled)) + "░".repeat(Math.max(0, empty));
+  return "#".repeat(Math.max(0, filled)) + "-".repeat(Math.max(0, empty));
 }
 
 /* ═══ Time formatter ═══ */
@@ -28,58 +29,41 @@ function fmtTime(ms) {
   return `${m}m ${s % 60}s`;
 }
 
-/* ═══ Build message body ═══ */
+/* ═══ Build body ═══ */
 function buildBody(state) {
   const { phase, pct, status, elapsed, extra } = state;
   const bar = progressBar(pct);
 
   const icons = {
-    queued:    "🕐",
-    building:  "🔨",
-    uploading: "📤",
-    live:      "🟢",
-    failed:    "🔴",
-    canceled:  "⚪"
+    queued:    "[ ]",
+    building:  "[>]",
+    uploading: "[^]",
+    live:      "[OK]",
+    failed:    "[X]",
+    canceled:  "[-]"
   };
-  const icon = icons[status] || "⏳";
+  const icon = icons[status] || "[.]";
 
   const lines = [
-    "🚀  **DEPLOY  ·  RENDER**",
-    "━━━━━━━━━━━━━━━━━━━━━━━━━",
+    "DEPLOY  -  RENDER",
+    "=======================",
     "",
-    `${icon}  **${phase}**`,
+    `${icon}  ${phase}`,
     "",
-    "`" + bar + "`  **" + Math.round(pct) + "%**",
+    "[" + bar + "]  " + Math.round(pct) + "%",
     "",
-    `⏱️  Elapsed: **${fmtTime(elapsed)}**`
+    `Elapsed: ${fmtTime(elapsed)}`
   ];
 
   if (extra) lines.push(extra);
-  lines.push("", "━━━━━━━━━━━━━━━━━━━━━━━━━");
+  lines.push("", "=======================");
 
   return lines.join("\n");
 }
 
-/* ═══ Small delay helper ═══ */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ═══ Poll Render deploy status (if API key + service ID set) ═══ */
-async function pollRenderDeploy(deployId, apiKey) {
-  try {
-    const r = await axios.get(
-      `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/deploys/${deployId}`,
-      {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-        timeout: 10000
-      }
-    );
-    return r.data;
-  } catch (e) {
-    return null;
-  }
-}
-
-/* ═══ Find latest deploy via Render API ═══ */
+/* ═══ Get latest deploy via Render API ═══ */
 async function getLatestDeploy(apiKey) {
   try {
     const r = await axios.get(
@@ -91,9 +75,45 @@ async function getLatestDeploy(apiKey) {
     );
     if (Array.isArray(r.data) && r.data.length) return r.data[0].deploy;
     return null;
-  } catch (_) {
-    return null;
+  } catch (_) { return null; }
+}
+
+/* ═══ Owner check ═══ */
+function isOwnerCheck(senderID, config) {
+  const ownerID =
+    config.ownerID || config.ownerId || config.owner ||
+    (global.NEXUS && global.NEXUS.config &&
+      (global.NEXUS.config.ownerID || global.NEXUS.config.ownerId || global.NEXUS.config.owner));
+
+  const adminList = [
+    ...(config.adminIDs  || []),
+    ...(config.adminBot  || []),
+    ...(config.admins    || []),
+    ...((global.NEXUS && global.NEXUS.config &&
+        (global.NEXUS.config.adminBot || global.NEXUS.config.adminIDs || [])) || [])
+  ].map(String);
+
+  const sid = String(senderID);
+  if (ownerID && sid === String(ownerID)) return true;
+  if (adminList.includes(sid)) return true;
+  return false;
+}
+
+/* ═══ Trigger hook (POST → GET fallback) ═══ */
+async function triggerDeploy(hookUrl) {
+  try {
+    const r = await axios.post(hookUrl, null, { timeout: 30000 });
+    if (r.status >= 200 && r.status < 300) return { ok: true, via: "POST", status: r.status };
+  } catch (e) {
+    console.log("[deploy] POST fail:", String(e.message).slice(0, 80));
   }
+  try {
+    const r = await axios.get(hookUrl, { timeout: 30000 });
+    if (r.status >= 200 && r.status < 300) return { ok: true, via: "GET", status: r.status };
+  } catch (e) {
+    console.log("[deploy] GET fail:", String(e.message).slice(0, 80));
+  }
+  return { ok: false, via: null, status: 0 };
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -102,70 +122,80 @@ async function getLatestDeploy(apiKey) {
 module.exports = {
   name: "deploy",
   aliases: ["deploynow", "rebuild", "redeploy"],
-  version: "2.0.0",
+  version: "2.2.0",
   role: 2,
   description: "Trigger Render deploy with live progress",
   usage: "/deploy",
   category: "owner",
 
+  checkTrigger: function (body) {
+    if (!body) return false;
+    const t = body.trim().toLowerCase();
+    return (
+      t === "deploy" || t === "deploynow" ||
+      t === "rebuild" || t === "redeploy" ||
+      t.startsWith("deploy ") || t.startsWith("deploynow ") ||
+      t.startsWith("rebuild ") || t.startsWith("redeploy ")
+    );
+  },
+
   execute: async function (api, event, args, db, config) {
     const { threadID, messageID, senderID } = event;
+
+    console.log(`[deploy] sender=${senderID}`);
+    console.log(`[deploy] owner=${config.ownerID || config.ownerId || config.owner}`);
+    console.log(`[deploy] hook=${!!process.env.RENDER_DEPLOY_HOOK}`);
+    console.log(`[deploy] editMessage=${typeof api.editMessage}`);
 
     const react = (e) => {
       if (messageID) try { api.setMessageReaction(e, messageID, threadID, () => {}); } catch (_) {}
     };
 
-    /* ═══ Owner check ═══ */
-    const isOwner =
-      String(senderID) === String(config.ownerID) ||
-      (config.adminIDs || []).map(String).includes(String(senderID));
+    /* Owner check */
+    if (!isOwnerCheck(senderID, config)) {
+      console.log("[deploy] not owner");
+      react("\u26D4");
+      return api.sendMessage("[X] Owner-only command.", threadID);
+    }
 
-    if (!isOwner) { react("⛔"); return; }
-
-    /* ═══ Hook check ═══ */
+    /* Hook check */
     const hookUrl = process.env.RENDER_DEPLOY_HOOK;
     if (!hookUrl) {
-      react("❌");
+      react("\u274C");
       return api.sendMessage(
-        "❌ **Deploy hook not set**\n" +
-        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-        "**Setup steps:**\n" +
-        "1️⃣  Render → Service → Settings\n" +
-        "2️⃣  **Deploy Hook** → *Create*\n" +
-        "3️⃣  Copy the URL\n" +
-        "4️⃣  Add env var on server:\n" +
-        "     `RENDER_DEPLOY_HOOK=<url>`\n\n" +
-        "**Optional (for live status):**\n" +
-        "     `RENDER_API_KEY=<key>`\n" +
-        "     `RENDER_SERVICE_ID=<id>`",
+        "[X] Deploy hook not set\n" +
+        "------------------------\n\n" +
+        "Setup:\n" +
+        "1. Render -> Service -> Settings\n" +
+        "2. Deploy Hook -> Create\n" +
+        "3. Copy URL\n" +
+        "4. Add env: RENDER_DEPLOY_HOOK=<url>\n\n" +
+        "Optional (live status):\n" +
+        "   RENDER_API_KEY=<key>\n" +
+        "   RENDER_SERVICE_ID=<id>",
         threadID
       );
     }
 
-    react("🚀");
+    react("\uD83D\uDE80");
 
-    /* ═══ Send initial message and grab its ID ═══ */
     const startTime = Date.now();
     let editMID = null;
 
     const state = {
-      phase: "Triggering deploy…",
-      pct: 3,
-      status: "queued",
-      elapsed: 0,
-      extra: null
+      phase: "Triggering deploy...",
+      pct: 3, status: "queued", elapsed: 0, extra: null
     };
 
-    const initialBody = buildBody(state);
-
     await new Promise((resolve) => {
-      api.sendMessage(initialBody, threadID, (err, info) => {
+      api.sendMessage(buildBody(state), threadID, (err, info) => {
         if (!err && info && info.messageID) editMID = info.messageID;
         resolve();
       });
     });
 
-    /* ═══ Edit helper (safe) ═══ */
+    /* Edit helper */
+    let editWarned = false;
     const edit = (body) => {
       if (!editMID) return;
       try {
@@ -173,53 +203,44 @@ module.exports = {
           api.editMessage(body, editMID, () => {});
         } else if (typeof api.editMessageText === "function") {
           api.editMessageText(body, editMID, () => {});
+        } else if (!editWarned) {
+          console.log("[deploy] no editMessage method - live update off");
+          editWarned = true;
         }
-      } catch (_) {}
+      } catch (e) {
+        console.log("[deploy] edit err:", e.message);
+      }
     };
 
-    /* ═══ Post deploy hook ═══ */
-    let triggered = false;
-    try {
-      const r = await axios.post(hookUrl, {}, { timeout: 30000 });
-      triggered = r.status >= 200 && r.status < 300;
-      console.log(`[deploy] hook status: ${r.status}`);
-    } catch (e) {
-      console.error("[deploy] hook error:", e.message);
-      state.phase  = "Hook trigger failed";
-      state.status = "failed";
-      state.pct    = 0;
-      state.extra  = `❌  \`${String(e.message).slice(0, 80)}\``;
-      state.elapsed = Date.now() - startTime;
-      edit(buildBody(state));
-      react("❌");
-      return;
-    }
+    /* Trigger */
+    const trigger = await triggerDeploy(hookUrl);
+    console.log(`[deploy] trigger: ${trigger.ok ? "OK via " + trigger.via : "FAIL"}`);
 
-    if (!triggered) {
-      state.phase = "Hook rejected";
+    if (!trigger.ok) {
+      state.phase = "Hook trigger failed";
       state.status = "failed";
       state.pct = 0;
+      state.extra = "[X] Check hook URL & env vars";
+      state.elapsed = Date.now() - startTime;
       edit(buildBody(state));
-      react("❌");
+      react("\u274C");
       return;
     }
 
-    /* ═══ Live progress loop ═══ */
+    /* Progress loop */
     const apiKey = process.env.RENDER_API_KEY;
     const serviceId = process.env.RENDER_SERVICE_ID;
     const hasLiveApi = !!(apiKey && serviceId);
 
     let lastPct = 3;
-    let finalStatus = "queued";
 
-    /* Time-based fallback ranges (approx per phase) */
     const TIMELINE = [
-      { ms: 5000,  pct: 15, phase: "Queued — waiting for runner…",  status: "queued" },
-      { ms: 20000, pct: 35, phase: "Building — installing deps…",   status: "building" },
-      { ms: 45000, pct: 55, phase: "Building — running build step…",status: "building" },
-      { ms: 75000, pct: 78, phase: "Uploading image…",              status: "uploading" },
-      { ms: 100000,pct: 92, phase: "Starting service…",             status: "building" },
-      { ms: 120000,pct: 100,phase: "Service is live 🎉",            status: "live" }
+      { ms: 5000,   pct: 15,  phase: "Queued - waiting for runner...",    status: "queued" },
+      { ms: 20000,  pct: 35,  phase: "Building - installing deps...",     status: "building" },
+      { ms: 45000,  pct: 55,  phase: "Building - running build step...",  status: "building" },
+      { ms: 75000,  pct: 78,  phase: "Uploading image...",                status: "uploading" },
+      { ms: 100000, pct: 92,  phase: "Starting service...",               status: "building" },
+      { ms: 120000, pct: 100, phase: "Service is live!",                  status: "live" }
     ];
 
     const interval = Math.min(POLL_INTERVAL, 3000);
@@ -229,87 +250,76 @@ module.exports = {
       await sleep(interval);
       const elapsed = Date.now() - startTime;
 
-      /* ── Try live API first ── */
       if (hasLiveApi) {
         const deploy = await getLatestDeploy(apiKey);
         if (deploy && deploy.status) {
-          finalStatus = deploy.status;
           const map = {
-            queued:          { pct: 20, phase: "Queued — waiting for runner…" },
-            build_in_progress: { pct: 55, phase: "Building…" },
-            update_in_progress:{ pct: 70, phase: "Updating service…" },
-            live:            { pct: 100, phase: "Service is live 🎉" },
-            build_failed:    { pct: 100, phase: "Build failed" },
-            canceled:        { pct: 100, phase: "Deploy canceled" },
-            pre_deploy_in_progress: { pct: 40, phase: "Pre-deploy hooks…" }
+            queued:                 { pct: 20,  phase: "Queued..." },
+            build_in_progress:      { pct: 55,  phase: "Building..." },
+            update_in_progress:     { pct: 70,  phase: "Updating..." },
+            pre_deploy_in_progress: { pct: 40,  phase: "Pre-deploy hooks..." },
+            live:                   { pct: 100, phase: "Service is live!" },
+            build_failed:           { pct: 100, phase: "Build failed" },
+            canceled:               { pct: 100, phase: "Deploy canceled" }
           };
           const m = map[deploy.status] || { pct: lastPct + 2, phase: deploy.status };
 
-          /* Only move forward */
-          const newPct = Math.max(lastPct, m.pct);
-          lastPct = newPct;
-
-          state.phase = m.phase;
-          state.pct   = newPct;
-          state.status = deploy.status.includes("fail") ? "failed"
-                       : deploy.status === "live"          ? "live"
-                       : deploy.status === "canceled"      ? "canceled"
-                       : "building";
+          lastPct = Math.max(lastPct, m.pct);
+          state.phase   = m.phase;
+          state.pct     = lastPct;
+          state.status  = deploy.status.includes("fail") ? "failed"
+                        : deploy.status === "live"         ? "live"
+                        : deploy.status === "canceled"     ? "canceled"
+                        : "building";
           state.elapsed = elapsed;
-          state.extra = `📊  \`${deploy.status}\``;
-
+          state.extra   = "Status: " + deploy.status;
           edit(buildBody(state));
 
-          if (state.status === "live" || state.status === "failed" || state.status === "canceled") {
-            break;
-          }
+          if (state.status === "live" || state.status === "failed" || state.status === "canceled") break;
           continue;
         }
       }
 
-      /* ── Fallback time-based progression ── */
       let step = TIMELINE[TIMELINE.length - 1];
-      for (const t of TIMELINE) {
-        if (elapsed < t.ms) { step = t; break; }
-      }
-      const newPct = Math.max(lastPct, step.pct);
-      lastPct = newPct;
+      for (const t of TIMELINE) { if (elapsed < t.ms) { step = t; break; } }
 
-      state.phase = step.phase;
-      state.pct   = newPct;
-      state.status = step.status;
+      lastPct = Math.max(lastPct, step.pct);
+      state.phase   = step.phase;
+      state.pct     = lastPct;
+      state.status  = step.status;
       state.elapsed = elapsed;
-      state.extra = hasLiveApi ? null : "ℹ️  *Set RENDER_API_KEY for live status*";
-
+      state.extra   = hasLiveApi ? null : "Tip: set RENDER_API_KEY for live status";
       edit(buildBody(state));
 
       if (step.status === "live") break;
     }
 
-    /* ═══ Finalize ═══ */
+    /* Finalize */
     const totalMs = Date.now() - startTime;
 
     if (state.status === "live") {
-      react("✅");
-      state.phase = "Deploy complete 🎉";
-      state.pct   = 100;
-      state.status = "live";
+      react("\u2705");
+      state.phase   = "Deploy complete!";
+      state.pct     = 100;
       state.elapsed = totalMs;
-      state.extra = `✅  Bot restarted in **${fmtTime(totalMs)}**`;
+      state.extra   = "Bot restarted in " + fmtTime(totalMs);
     } else if (state.status === "failed" || state.status === "canceled") {
-      react("❌");
-      state.extra = `❌  Deploy **${state.status}** — check Render logs`;
+      react("\u274C");
+      state.extra = "Deploy " + state.status + " - check Render logs";
     } else {
-      /* Timed out */
-      state.status = "live";
-      state.phase  = "Deploy triggered (status timeout)";
-      state.pct    = 100;
+      state.status  = "live";
+      state.phase   = "Deploy triggered (status timeout)";
+      state.pct     = 100;
       state.elapsed = totalMs;
-      state.extra = `ℹ️  No final status from API — check dashboard\n🔗 https://dashboard.render.com`;
-      react("✅");
+      state.extra   = "Check dashboard: https://dashboard.render.com";
+      react("\u2705");
     }
 
     edit(buildBody(state));
+
+    if (!editMID) {
+      api.sendMessage(buildBody(state), threadID);
+    }
   }
 };
 
