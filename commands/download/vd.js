@@ -1,6 +1,6 @@
 /**
  * commands/download/vd.js
- * NEXUS BOT V1 — Video Downloader (fixed)
+ * NEXUS BOT V1 — Video Downloader (25MB limit enforced)
  * © 2026
  */
 
@@ -11,6 +11,10 @@ const fs = require("fs-extra");
 const path = require("path");
 const os = require("os");
 const yts = require("yt-search");
+
+/* ═══ CONSTANTS ═══ */
+const MAX_SIZE_MB = 25;
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 
 /* ═══ Search Store ═══ */
 const vdSearches = new Map();
@@ -92,7 +96,6 @@ function findVideoUrl(data, depth = 0) {
 async function getVideoUrl(url, platform) {
   const errors = [];
 
-  /* SOURCE 1: btch-downloader */
   try {
     const btch = require("btch-downloader");
     const fnMap = {
@@ -124,7 +127,6 @@ async function getVideoUrl(url, platform) {
     }
   } catch (e) { errors.push(`btch: ${e.message}`); }
 
-  /* SOURCE 2: fdown-downloader */
   try {
     const fdown = require("fdown-downloader");
     for (const fnName of Object.keys(fdown)) {
@@ -137,7 +139,6 @@ async function getVideoUrl(url, platform) {
     }
   } catch (e) { errors.push(`fdown: ${e.message}`); }
 
-  /* SOURCE 3: nayan-media-downloader */
   try {
     const ndl = require("nayan-media-downloader");
     for (const fnName of Object.keys(ndl)) {
@@ -178,7 +179,43 @@ function getCookiePath() {
   return null;
 }
 
-/* ═══ Direct YouTube Download via yt-dlp (Bug fix) ═══ */
+/* ═══════════════════════════════════════════════════════════
+   ⚡ GET CONTENT-LENGTH BEFORE DOWNLOAD
+   ═══════════════════════════════════════════════════════════ */
+async function getRemoteSize(url) {
+  try {
+    const r = await axios.head(url, {
+      timeout: 15000,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "*/*"
+      },
+      maxRedirects: 5
+    });
+    const len = r.headers["content-length"];
+    if (len) return parseInt(len);
+  } catch (_) {}
+
+  /* Fallback — Range request for first byte */
+  try {
+    const r = await axios.get(url, {
+      headers: {
+        "Range": "bytes=0-1",
+        "User-Agent": "Mozilla/5.0"
+      },
+      timeout: 15000
+    });
+    const cr = r.headers["content-range"]; /* e.g. bytes 0-1/12345678 */
+    if (cr) {
+      const m = cr.match(/\/(\d+)$/);
+      if (m) return parseInt(m[1]);
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+/* ═══ Direct YouTube Download (with size guard) ═══ */
 async function downloadYoutubeDirect(videoId) {
   const { YtDlp } = require("ytdlp-nodejs");
   const ytdlp = new YtDlp();
@@ -186,6 +223,7 @@ async function downloadYoutubeDirect(videoId) {
   const url = `https://www.youtube.com/watch?v=${videoId}`;
   const tmpPath = path.join(os.tmpdir(), `vd_yt_${Date.now()}.mp4`);
 
+  /* ⚡ Try 360p first — small size */
   const opts = {
     output: tmpPath,
     videoQuality: "360",
@@ -212,20 +250,59 @@ async function downloadYoutubeDirect(videoId) {
   }
 
   const stat = fs.statSync(finalPath);
-  if (stat.size < 10000) {
+
+  /* ⚡ If over 25MB — try 240p fallback */
+  if (stat.size > MAX_SIZE_BYTES) {
+    console.log(`[vd] 360p too big (${(stat.size / 1024 / 1024).toFixed(1)} MB) — trying 240p`);
     try { fs.unlinkSync(finalPath); } catch (_) {}
-    throw new Error("File too small");
+
+    const opts2 = {
+      output: tmpPath,
+      videoQuality: "240",
+      noWarnings: true,
+      noProgress: true,
+      retries: 3,
+      extractorArgs: "youtube:player_client=android,ios,web_safari"
+    };
+    if (cookiesPath) opts2.cookies = cookiesPath;
+
+    const result2 = await ytdlp.downloadVideo(url, "mp4", opts2);
+    let finalPath2 = null;
+    if (result2 && result2.filePaths && result2.filePaths.length) {
+      finalPath2 = result2.filePaths[0];
+    } else if (fs.existsSync(tmpPath)) {
+      finalPath2 = tmpPath;
+    }
+
+    if (!finalPath2 || !fs.existsSync(finalPath2)) {
+      throw new Error("240p fallback failed");
+    }
+
+    const stat2 = fs.statSync(finalPath2);
+    if (stat2.size > MAX_SIZE_BYTES) {
+      try { fs.unlinkSync(finalPath2); } catch (_) {}
+      throw new Error(`Video too big (${(stat2.size / 1024 / 1024).toFixed(1)} MB > ${MAX_SIZE_MB} MB)`);
+    }
+    return { path: finalPath2, size: stat2.size };
   }
 
   return { path: finalPath, size: stat.size };
 }
 
-/* ═══ Stream Download (for non-YouTube) ═══ */
+/* ═══════════════════════════════════════════════════════════
+   ⚡ STREAM DOWNLOAD — with mid-download abort
+   ═══════════════════════════════════════════════════════════ */
 async function downloadFile(url, outPath) {
+  /* ═══ Step 1: Check size BEFORE download ═══ */
+  const remoteSize = await getRemoteSize(url);
+  if (remoteSize && remoteSize > MAX_SIZE_BYTES) {
+    throw new Error(`Video too big (${(remoteSize / 1024 / 1024).toFixed(1)} MB > ${MAX_SIZE_MB} MB)`);
+  }
+
+  /* ═══ Step 2: Stream with mid-download abort ═══ */
   const res = await axios.get(url, {
     responseType: "stream",
     timeout: 180000,
-    maxContentLength: 100 * 1024 * 1024,
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       "Accept": "*/*"
@@ -234,10 +311,27 @@ async function downloadFile(url, outPath) {
 
   return new Promise((resolve, reject) => {
     const w = fs.createWriteStream(outPath);
+    let downloaded = 0;
+    let aborted = false;
+
+    res.data.on("data", (chunk) => {
+      downloaded += chunk.length;
+
+      /* ⚡ Abort if over limit */
+      if (downloaded > MAX_SIZE_BYTES && !aborted) {
+        aborted = true;
+        try { res.data.destroy(); } catch (_) {}
+        try { w.destroy(); } catch (_) {}
+        try { fs.unlinkSync(outPath); } catch (_) {}
+        reject(new Error(`Video too big (>${MAX_SIZE_MB} MB) — aborted`));
+      }
+    });
+
     res.data.pipe(w);
-    res.data.on("error", reject);
-    w.on("error", reject);
+    res.data.on("error", (e) => { if (!aborted) reject(e); });
+    w.on("error", (e) => { if (!aborted) reject(e); });
     w.on("finish", () => {
+      if (aborted) return;
       let sz = 0;
       try { sz = fs.statSync(outPath).size; } catch (_) {}
       if (sz < 10000) {
@@ -275,34 +369,31 @@ function cleanOldTmp() {
   } catch (_) {}
 }
 
-/* ═══ Download + Send ═══ */
+/* ═══ Download + Send (final 25MB check) ═══ */
 async function downloadAndSend(api, threadID, source, platform, react) {
   let finalPath = null;
 
   try {
     if (platform === "youtube" && source.videoId) {
-      /* ⚡ Direct yt-dlp download */
       const r = await downloadYoutubeDirect(source.videoId);
       finalPath = r.path;
-      const mb = r.size / 1024 / 1024;
-      console.log(`[vd] yt-dlp downloaded ${mb.toFixed(2)} MB`);
+      console.log(`[vd] yt-dlp downloaded ${(r.size / 1024 / 1024).toFixed(2)} MB`);
     } else {
-      /* ⚡ Stream download */
       const ext = guessExt(source.url);
       finalPath = path.join(os.tmpdir(), `vd_${Date.now()}.${ext}`);
       const r = await downloadFile(source.url, finalPath);
-      const mb = r.size / 1024 / 1024;
-      console.log(`[vd] streamed ${mb.toFixed(2)} MB`);
+      console.log(`[vd] streamed ${(r.size / 1024 / 1024).toFixed(2)} MB`);
     }
 
+    /* ⚡ Final safety check */
     const stat = fs.statSync(finalPath);
     const mb = stat.size / 1024 / 1024;
 
-    if (mb > 25) {
+    if (mb > MAX_SIZE_MB) {
       react("⚠️");
       try { fs.unlinkSync(finalPath); } catch (_) {}
       api.sendMessage(
-        `⚠️ Video too big: ${mb.toFixed(1)} MB\n📦 Messenger limit: 25 MB`,
+        `⚠️ Video too big: ${mb.toFixed(1)} MB\n📦 Messenger limit: ${MAX_SIZE_MB} MB\n\n❌ Skip korlam.`,
         threadID
       );
       return;
@@ -327,10 +418,10 @@ async function downloadAndSend(api, threadID, source, platform, react) {
    ═══════════════════════════════════════════════════════════ */
 module.exports = {
   name: "vd",
-  aliases: ["vid", "vdl", "video"],   /* ⚠️ "dl" removed — conflict with autodl */
-  version: "2.1.0",
+  aliases: ["vid", "vdl", "video"],
+  version: "2.2.0",
   role: 0,
-  description: "Download video from URL or search by name",
+  description: "Download video (25MB limit enforced)",
   usage: "/vd <url | search term>",
   category: "download",
 
@@ -345,17 +436,16 @@ module.exports = {
 
     cleanOldTmp();
 
-    /* ═══ Extract URL ═══ */
+    /* Extract URL */
     let url = (args || []).find((a) => /^https?:\/\//i.test(a));
     if (!url) url = extractUrl(body);
     if (!url && messageReply && messageReply.body) url = extractUrl(messageReply.body);
 
-    /* ═══ CASE 1: URL → download ═══ */
+    /* ═══ CASE 1: URL ═══ */
     if (url) {
       const platform = detectPlatform(url);
       console.log(`[vd] URL mode: platform=${platform}`);
 
-      /* YouTube URL → direct yt-dlp */
       if (platform === "youtube") {
         const m = url.match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/);
         if (m) {
@@ -365,13 +455,15 @@ module.exports = {
           } catch (e) {
             console.error("[vd] error:", e.message);
             react("❌");
-            api.sendMessage(`❌ Download failed: ${e.message.slice(0, 150)}`, threadID);
+            api.sendMessage(
+              e.message.includes("too big") ? `⚠️ ${e.message}` : `❌ Download failed: ${e.message.slice(0, 150)}`,
+              threadID
+            );
           }
           return;
         }
       }
 
-      /* Other platforms → get URL + stream */
       react("⏳");
       try {
         const videoUrl = await getVideoUrl(url, platform);
@@ -381,14 +473,16 @@ module.exports = {
         console.error("[vd] error:", e.message);
         react("❌");
         api.sendMessage(
-          `❌ Download failed\n📌 Platform: ${platform}\n💬 ${e.message.slice(0, 200)}`,
+          e.message.includes("too big")
+            ? `⚠️ ${e.message}`
+            : `❌ Download failed\n📌 Platform: ${platform}\n💬 ${e.message.slice(0, 200)}`,
           threadID
         );
       }
       return;
     }
 
-    /* ═══ CASE 2: Search by name ═══ */
+    /* ═══ CASE 2: Search ═══ */
     let query = (body || "").trim();
     const prefix = config.prefix || "/";
     if (query.startsWith(prefix)) query = query.slice(prefix.length).trim();
@@ -403,7 +497,8 @@ module.exports = {
         `━━━━━━━━━━━━━━━━━━\n` +
         `📌 Usage:\n` +
         `• /vd <url>           → direct download\n` +
-        `• /vd <search term>   → search YouTube`,
+        `• /vd <search term>   → search YouTube\n\n` +
+        `📦 Max size: ${MAX_SIZE_MB} MB`,
         threadID
       );
     }
@@ -511,7 +606,10 @@ module.exports = {
     } catch (e) {
       console.error("[vd] download error:", e.message);
       react("❌");
-      api.sendMessage(`❌ Download failed: ${e.message.slice(0, 150)}`, threadID);
+      api.sendMessage(
+        e.message.includes("too big") ? `⚠️ ${e.message}` : `❌ Download failed: ${e.message.slice(0, 150)}`,
+        threadID
+      );
     }
 
     return true;
