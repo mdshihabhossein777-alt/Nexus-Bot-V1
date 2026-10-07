@@ -483,7 +483,7 @@ module.exports = {
       const senderID = event.senderID;
       const body = event.body || "";
       const messageID = event.messageID;
-      const FOOTER = "Powered by NEXUS BOT V1";
+      const FOOTER = "Powered by Ariyan Shihab";
 
       /* ═══ on / off toggle ═══ */
       const firstArg = (args && args[0]) ? String(args[0]).toLowerCase() : "";
