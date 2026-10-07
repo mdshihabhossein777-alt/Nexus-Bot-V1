@@ -15,10 +15,10 @@ const { createCanvas, loadImage } = require("@napi-rs/canvas");
    ═══════════════════════════════════════════════════════════ */
 const FACES = {
   /* Black character (left, white hair) — command user */
-  black: { x: 280, y: 130, size: 150 },
+  black: { x: 340, y: 185, size: 150 },   /* Gojo (left) */
 
   /* White character (right, black hair) — replied user */
-  white: { x: 660, y: 170, size: 140 }
+  white: { x: 750, y: 250, size: 140 }    /* Right character */
 };
 
 /* ═══ Image path resolver ═══ */
