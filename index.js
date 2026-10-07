@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * commands/ai/baby.js
- * NEXUS BOT V1 — Reply-only auto chat + trigger words
+ * NEXUS BOT V1 — Reply-only auto chat + trigger words (FIXED v8)
  * © 2026
  */
 
@@ -29,6 +29,7 @@ function saveBotMsgs(d) {
   try { fs.writeJsonSync(BOT_MSG_FILE, d); } catch (_) {}
 }
 function storeBotMsg(messageID, threadID, userID) {
+  if (!messageID) return;
   const data = loadBotMsgs();
   const now = Date.now();
   for (const k of Object.keys(data)) {
@@ -36,16 +37,47 @@ function storeBotMsg(messageID, threadID, userID) {
   }
   data[String(messageID)] = { threadID: String(threadID), userID: String(userID), time: now };
   saveBotMsgs(data);
+  console.log(`[baby] stored msgID: ${messageID}`);
 }
+
+/* ═══ FIX #1: Fuzzy match — messageID format alada hole o kaj korbe ═══ */
 function isBotMsg(messageID) {
-  return !!loadBotMsgs()[String(messageID)];
+  if (!messageID) return false;
+  const data = loadBotMsgs();
+  const key = String(messageID);
+
+  /* Exact match */
+  if (data[key]) return true;
+
+  /* Fuzzy: last 20 chars */
+  const tail = key.slice(-20);
+  for (const k of Object.keys(data)) {
+    if (k.slice(-20) === tail) return true;
+  }
+
+  /* Fuzzy: contains match (framework может return mid.$xxx) */
+  for (const k of Object.keys(data)) {
+    if (key.includes(k) || k.includes(key)) return true;
+  }
+  return false;
+}
+
+/* ═══ FIX #3: Cache bot ID (no repeated calls) ═══ */
+let _cachedBotID = null;
+function getBotID(api) {
+  if (_cachedBotID) return _cachedBotID;
+  try {
+    if (typeof api.getCurrentUserID === "function") {
+      _cachedBotID = String(api.getCurrentUserID());
+    }
+  } catch (_) {}
+  return _cachedBotID;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   REPLY DATABASE
+   REPLY DATABASE (full — same as before)
    ═══════════════════════════════════════════════════════════ */
 const REPLIES = {
-  /* ═══ Reply-to-bot specific ═══ */
   reply_to_bot: [
     "Hmm 🥰","Bolo jan 💕","Ki holo? 🥺","Ami achi 🥰","Haan bolo 💕",
     "Ei je 🌸","Bolo bolo 🥰","Ki jiggesh? 😊","Tomar kotha shuni 💕","Ei je ami 🥰",
@@ -236,7 +268,6 @@ const REPLIES = {
   ]
 };
 
-/* ═══ Keyword map ═══ */
 const KEYWORD_MAP = [
   { cat: "good_morning",  words: ["good morning","shubho sokal","shuvo shokal","sokal","shokal"] },
   { cat: "good_night",    words: ["good night","shubho ratri","shuvo ratri","ratri","ghum ase","ghoom"] },
@@ -328,9 +359,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 module.exports = {
   name: "baby",
   aliases: ["bby", "mia", "jan", "babu", "bot", "bbu", "mimi"],
-  version: "7.0.0",
+  version: "8.0.0",
   role: 0,
-  description: "Reply-only cute chat + trigger words",
+  description: "Reply-only cute chat + trigger words (FIXED)",
   usage: "baby <text>  OR  bot <text>  OR  reply to bot",
   category: "ai",
 
@@ -339,9 +370,7 @@ module.exports = {
   storeBotReply: storeBotMsg,
 
   /* ═══════════════════════════════════════════════════════
-     ONCHAT — fires on every message
-     - ONLY responds when user REPLIES to bot's message
-     - Skips commands, self, unrelated messages
+     ONCHAT — runs on every message
      ═══════════════════════════════════════════════════════ */
   onChat: async function (api, event, db, config) {
     const { threadID, senderID, body, messageID, messageReply } = event;
@@ -350,38 +379,43 @@ module.exports = {
     if (!body || !String(body).trim()) return false;
     if (!messageID) return false;
 
-    /* Skip own messages */
-    try {
-      const botID = api.getCurrentUserID ? api.getCurrentUserID() : null;
-      if (botID && String(senderID) === String(botID)) return false;
-    } catch (_) {}
+    /* Skip own messages — cached botID */
+    const botID = getBotID(api);
+    if (botID && String(senderID) === botID) return false;
 
     /* Skip commands */
     const prefix = (config && config.prefix) || "/";
     if (String(body).trim().startsWith(prefix)) return false;
 
-    /* ═══ THE KEY CHECK: must be a REPLY to bot's message ═══ */
+    /* ═══ KEY CHECK: must be reply to bot's message ═══ */
     if (!messageReply || !messageReply.messageID) return false;
-    if (!isBotMsg(messageReply.messageID)) return false;
+
+    const targetMID = String(messageReply.messageID);
+    const isBot = isBotMsg(targetMID);
+
+    /* Debug log */
+    console.log(`[baby.onChat] reply=${targetMID.slice(-15)} | isBot=${isBot}`);
+
+    if (!isBot) return false;
 
     /* Cooldown per thread */
     const now = Date.now();
     const last = threadCooldowns.get(String(threadID)) || 0;
-    if (now - last < COOLDOWN_MS) return false;
+    if (now - last < COOLDOWN_MS) {
+      console.log(`[baby.onChat] cooldown skip`);
+      return false;
+    }
     threadCooldowns.set(String(threadID), now);
     if (threadCooldowns.size > 5000) {
       threadCooldowns.delete(threadCooldowns.keys().next().value);
     }
 
-    /* ═══ Parse user text ═══ */
+    /* Parse user text */
     let userText = String(body).trim();
-
-    /* Strip trigger word if present */
     const firstWord = userText.split(/\s+/)[0].toLowerCase();
     if (TRIGGERS.includes(firstWord)) {
       userText = userText.slice(firstWord.length).trim();
     }
-
     if (userText.length > 300) userText = userText.slice(0, 300);
 
     /* Get name */
@@ -393,20 +427,36 @@ module.exports = {
       }
     } catch (_) {}
 
-    /* ═══ Pick reply ═══ */
-    /* If user text is empty → use reply_to_bot pool */
-    /* Else → keyword match on their text */
+    /* Pick reply */
     const reply = userText
       ? pickReply(userText, userName, false)
       : pickReply("", userName, true);
 
+    console.log(`[baby.onChat] ✅ reply: "${reply}"`);
+
     /* Human delay */
     await sleep(400 + Math.random() * 700);
 
-    /* Send + store new msgID so reply chain continues */
+    /* ═══ FIX #2: Send + store with fallback ═══ */
     api.sendMessage(reply, threadID, (err, info) => {
-      if (!err && info && info.messageID) {
+      if (err) {
+        console.log(`[baby.onChat] send err: ${err.message}`);
+        return;
+      }
+      if (info && info.messageID) {
         storeBotMsg(info.messageID, threadID, senderID);
+      } else {
+        /* Fallback: retry fetch */
+        console.log(`[baby.onChat] no messageID in callback, retrying...`);
+        setTimeout(() => {
+          try {
+            api.sendMessage(reply, threadID, (e2, i2) => {
+              if (!e2 && i2 && i2.messageID) {
+                storeBotMsg(i2.messageID, threadID, senderID);
+              }
+            });
+          } catch (_) {}
+        }, 300);
       }
     });
 
@@ -444,15 +494,20 @@ module.exports = {
       }
     } catch (_) {}
 
-    /* Empty text → reply_to_bot pool */
+    /* Pick reply */
     const reply = userText
       ? pickReply(userText, userName, false)
       : pickReply("", userName, true);
 
+    console.log(`[baby.execute] reply: "${reply}"`);
     react("💕");
 
     api.sendMessage(reply, threadID, (err, info) => {
-      if (!err && info && info.messageID) {
+      if (err) {
+        console.log(`[baby.execute] send err: ${err.message}`);
+        return;
+      }
+      if (info && info.messageID) {
         storeBotMsg(info.messageID, threadID, senderID);
       }
     });
